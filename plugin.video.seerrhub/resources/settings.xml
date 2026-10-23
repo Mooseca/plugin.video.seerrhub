@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings>
+  <category label="Seerr">
+    <setting id="seerr_url" type="text" label="Seerr address (http://ip:5055)" default=""/>
+    <setting id="api_key" type="text" option="hidden" label="Seerr API key" default=""/>
+    <setting id="region" type="text" label="Streaming region (blank = from Seerr)" default=""/>
+  </category>
+  <category label="Media server">
+    <setting id="media_server" type="enum" label="Media server" values="Ask Seerr|Plex|Jellyfin|Emby|None" default="0"/>
+    <setting type="lsep" label="Jellyfin / Emby (blank = use their Kodi add-on login)"/>
+    <setting id="server_url" type="text" label="Server address (http://ip:8096)" default=""/>
+    <setting id="server_key" type="text" option="hidden" label="API key" default=""/>
+    <setting id="server_user" type="text" label="User name" default=""/>
+  </category>
+  <category label="Downloads">
+    <setting type="lsep" label="qBittorrent (optional)"/>
+    <setting id="qbit_url" type="text" label="Web UI address (http://ip:8080)" default=""/>
+    <setting id="qbit_user" type="text" label="User name (blank if none)" default=""/>
+    <setting id="qbit_pass" type="text" option="hidden" label="Password" default=""/>
+    <setting id="downloads_path" type="text" label="Download folder as Kodi sees it" default=""/>
+  </category>
+</settings>
