@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.seerrhub" name="Seerr Hub" version="2.0.0" provider-name="Mooseca">
+<addon id="plugin.video.seerrhub" name="Seerr Hub" version="2.0.1" provider-name="Mooseca">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
   </requires>
@@ -22,6 +22,12 @@
     <license>MIT</license>
     <source>https://github.com/Mooseca/plugin.video.seerrhub</source>
     <website>https://github.com/Mooseca/plugin.video.seerrhub</website>
-    <assets><icon>icon.png</icon></assets>
+    <assets>
+      <icon>icon.png</icon>
+      <fanart>fanart.jpg</fanart>
+      <screenshot>resources/screenshots/trending.jpg</screenshot>
+      <screenshot>resources/screenshots/title-request.jpg</screenshot>
+      <screenshot>resources/screenshots/search.jpg</screenshot>
+    </assets>
   </extension>
 </addon>

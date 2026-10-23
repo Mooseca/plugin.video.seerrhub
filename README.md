@@ -1,87 +1,345 @@
-# Seerr Hub for Kodi
+<p align="center">
+  <img src="docs/banner.png" alt="Seerr Hub" width="100%">
+</p>
 
-One "watch this" menu for any movie or show in Kodi. Pick a title and Seerr Hub offers, in order:
+<p align="center">
+  <a href="https://github.com/Mooseca/plugin.video.seerrhub/releases/latest"><img src="https://img.shields.io/github/v/release/Mooseca/plugin.video.seerrhub?label=release&color=7c5cff" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Kodi-20%20%7C%2021-17B2E7?logo=kodi&logoColor=white" alt="Kodi 20 and 21">
+  <img src="https://img.shields.io/badge/works%20with-Plex%20%7C%20Jellyfin%20%7C%20Emby-555" alt="Plex, Jellyfin, Emby">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Mooseca/plugin.video.seerrhub?color=555" alt="MIT license"></a>
+</p>
 
-- **Play it from your library** (Plex, Jellyfin or Emby) if you already have it
-- **Open it in the official streaming app** (Netflix, Disney+, Prime Video, HBO Max, Hulu and more) on Android TV, using JustWatch data for your region
-- **Request it** in Seerr / Jellyseerr / Overseerr
-- *(optional)* **Choose the release yourself** through Radarr/Sonarr and **start watching while qBittorrent is still downloading**
+**Seerr Hub** is a Kodi add-on that answers one question for any movie or show: *"how do I watch this right now?"*
 
-It works on its own (Search, Trending, My requests, Downloading), as a context-menu item ("Watch or request") on any movie, show, season or episode, and as a [TMDb Helper](https://github.com/jurialmunkey/plugin.video.themoviedb.helper) player.
+Pick a title and it checks your own media server, the streaming services you can get in your country, and your [Seerr](https://github.com/seerr-team/seerr) / Jellyseerr / Overseerr server. Then it gives you one short menu:
 
-> Seerr Hub doesn't stream anything itself. It only opens apps you already have, plays files from your own server, or asks your own Seerr to fetch them.
+- **Play from Plex / Jellyfin / Emby** if it's already in your library
+- **Open in Netflix / Disney+ / HBO Max / ...** if it's on a streaming service and the app is installed (Android TV)
+- **Request in Seerr** if you don't have it, and let your Radarr/Sonarr setup fetch it
+- *(optional)* **Download - choose the release** to pick the exact release yourself, then **start watching while it downloads**
 
-## What you need
+It works as its own add-on, as a **"Watch or request"** item in Kodi's context menu, and as a **player for TMDb Helper**, so it plugs straight into skins like Arctic Fuse.
 
-- Kodi 20 or newer (tested on Kodi 21)
-- A [Seerr](https://github.com/seerr-team/seerr), Jellyseerr or Overseerr server and its API key
-- Optional: Plex with [PlexKodiConnect](https://github.com/croneter/PlexKodiConnect), or Jellyfin / Emby
-- Optional: Radarr, Sonarr and qBittorrent (already connected to Seerr) for picking releases and watching downloads
+<p align="center">
+  <img src="docs/screenshots/trending.jpg" alt="Trending titles from Seerr in Arctic Fuse 3" width="85%">
+</p>
 
-Opening streaming apps only works on **Android** (Android TV, Shield, Fire TV, Google TV). On other systems the app options are skipped and the rest works as normal.
+> [!NOTE]
+> Seerr Hub doesn't stream or scrape anything. It opens apps you already have, plays files from your own server, and sends requests to your own Seerr.
+
+---
+
+## Contents
+
+- [Screenshots](#screenshots)
+- [How it decides what to offer](#how-it-decides-what-to-offer)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Settings in detail](#settings-in-detail)
+- [Plex, Jellyfin and Emby](#plex-jellyfin-and-emby)
+- [Downloads: pick a release and watch while it downloads](#downloads-pick-a-release-and-watch-while-it-downloads)
+- [Using it from skins and TMDb Helper](#using-it-from-skins-and-tmdb-helper)
+- [Streaming apps](#streaming-apps)
+- [Troubleshooting](#troubleshooting)
+- [Privacy](#privacy)
+- [Building and contributing](#building-and-contributing)
+
+---
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Already in your library](docs/screenshots/title-library.jpg) | ![Not in your library: download or request](docs/screenshots/title-request.jpg) |
+| **In your library:** one click plays it from Plex. | **Not in your library:** it tells you where it streams, and offers download or request. |
+| ![Search results](docs/screenshots/search.jpg) | ![Main menu](docs/screenshots/menu.jpg) |
+| **Search** shows what you already have (`[In Plex]`, `[Requested]`, `[Downloading]`). | **Main menu:** Search, Trending, My requests, Downloading. |
+
+*Screenshots are from Kodi 21 with the Arctic Fuse 3 skin on a PC. On Android TV the same menu also lists "Open in Netflix" and so on.*
+
+## How it decides what to offer
+
+```mermaid
+flowchart TD
+    A[Pick a movie, show or episode] --> B{In your media server?}
+    B -- yes, and in Kodi's library --> P[Play from Plex / Jellyfin / Emby]
+    B -- yes, but not synced to Kodi yet --> Q[Open the Plex / Jellyfin / Emby app]
+    A --> C{Streaming in your region?<br/>JustWatch}
+    C -- app installed --> S[Open in Netflix, Disney+, ...]
+    C -- app not installed --> T[Named in the title:<br/>'also on Paramount+']
+    A --> D{Already requested<br/>or downloading?}
+    D -- downloading --> W[Downloading 42% - Watch now]
+    D -- no --> R[Request in Seerr]
+    D -- not downloaded yet --> X[Download - choose the release...<br/>through Radarr / Sonarr]
+```
+
+Everything that applies is listed together, best option first. Nothing is ever started without you choosing it.
+
+## Requirements
+
+| | Needed? | Notes |
+|---|---|---|
+| **Kodi 20 (Nexus) or newer** | Yes | Tested on Kodi 21 (Omega) on Android TV and Linux. |
+| **Seerr, Jellyseerr or Overseerr** | Yes | You need its address and API key. |
+| **Plex + [PlexKodiConnect](https://github.com/croneter/PlexKodiConnect)** | Optional | For "Play from Plex". |
+| **Jellyfin / Emby** (+ [Jellyfin for Kodi](https://github.com/jellyfin/jellyfin-kodi)) | Optional | For "Play from Jellyfin". |
+| **Radarr / Sonarr** | Optional | Already connected to Seerr. Lets you pick the release yourself. |
+| **qBittorrent** | Optional | For the Downloading list and watching while it downloads. |
+| **Android TV device** | Optional | Only Android can open other apps. On other systems the "Open in ..." options are just left out. |
 
 ## Install
 
-1. Download `plugin.video.seerrhub-<version>.zip` from [Releases](https://github.com/Mooseca/plugin.video.seerrhub/releases).
-2. In Kodi: **Settings → System → Add-ons → Unknown sources** on.
-3. **Settings → Add-ons → Install from zip file** and pick the zip.
-4. Open the add-on settings and fill in at least the Seerr page.
+1. Download `plugin.video.seerrhub-<version>.zip` from the [latest release](https://github.com/Mooseca/plugin.video.seerrhub/releases/latest).
+   - On a TV box, it's often easiest to put the zip on a network share or USB stick.
+2. In Kodi, go to **Settings → System → Add-ons** and turn on **Unknown sources**.
+3. Go to **Settings → Add-ons → Install from zip file** and pick the zip.
+4. Open **Add-ons → Video add-ons → Seerr Hub → Configure** (or long-press → Settings).
 
-To build the zip yourself: `python3 build.py`.
+To update, install the newer zip the same way. Your settings are kept.
 
-## Settings
+## Quick start
+
+You only need two settings to get going:
+
+1. **Seerr address**, e.g. `http://192.168.1.10:5055`
+2. **Seerr API key**, from Seerr's web page: **Settings → General → API Key**
+
+That's it. Leave **Media server** on *Ask Seerr*, and Seerr Hub uses whichever server Seerr is connected to. Open the add-on, try **Search** or **Trending**, and pick a title.
+
+<p align="center">
+  <img src="docs/screenshots/settings.jpg" alt="Seerr Hub settings" width="70%">
+</p>
+
+## Settings in detail
 
 ### Seerr
-| Setting | What to put |
-|---|---|
-| Seerr address | e.g. `http://192.168.1.10:5055` |
-| Seerr API key | Seerr → Settings → General → API Key |
-| Streaming region | Two-letter country code (`US`, `GB`, `AU`...). Blank uses the region set in Seerr. |
+
+| Setting | What to put | Example |
+|---|---|---|
+| Seerr address | The address you open Seerr on, including the port | `http://192.168.1.10:5055` |
+| Seerr API key | Seerr → Settings → General → API Key | |
+| Streaming region | Two-letter country code for streaming availability. **Leave blank** to use the region set in Seerr. | `US`, `GB`, `AU`, `CA` |
 
 ### Media server
-**Ask Seerr** (the default) uses whichever server Seerr is connected to. You can force Plex, Jellyfin, Emby or None.
 
-- **Plex** needs PlexKodiConnect signed in and synced: Seerr Hub plays titles from the Kodi library that PlexKodiConnect builds, and uses PlexKodiConnect's login. There's nothing to fill in here.
-- **Jellyfin / Emby**: titles are played from the Kodi library, so use the Jellyfin for Kodi (or Emby for Kodi) add-on to sync it. If that add-on is signed in, Seerr Hub uses its login and you can leave these fields blank. Otherwise fill in the server address (e.g. `http://192.168.1.10:8096`), an API key (Dashboard → API Keys) and your user name.
-
-If a title is on your server but not in Kodi's library yet, Seerr Hub opens the Plex / Jellyfin / Emby app instead (Android).
-
-Emby goes through the same code as Jellyfin but hasn't been tested on a real Emby server. Reports welcome.
+| Setting | What it does |
+|---|---|
+| Media server | **Ask Seerr** (default) uses Seerr's own setting. You can force **Plex**, **Jellyfin**, **Emby** or **None** (no library: just streaming apps and requests). |
+| Server address | Jellyfin / Emby only, e.g. `http://192.168.1.10:8096`. Leave blank to use the Jellyfin for Kodi login. |
+| API key | Jellyfin: **Dashboard → API Keys → +**. Emby: **Settings → Advanced → API Keys**. |
+| User name | The user whose watched status should be updated. Leave blank if there's only one user. |
 
 ### Downloads (optional)
-| Setting | What to put |
+
+| Setting | What to put | Example |
+|---|---|---|
+| Web UI address | qBittorrent's Web UI | `http://192.168.1.10:8080` |
+| User name / Password | Leave blank if qBittorrent lets your network in without a login (*Bypass authentication for clients in whitelisted IP subnets*). | |
+| Download folder as Kodi sees it | qBittorrent's **default save path**, shared to Kodi. Read-only is fine. Sub-folders (categories) are worked out automatically. | `smb://nas/downloads/` or `nfs://nas/downloads/` |
+
+Without qBittorrent you can still pick releases (Radarr/Sonarr send them to whatever download client they use). Only the Downloading list and watch-while-downloading need it.
+
+## Plex, Jellyfin and Emby
+
+Seerr Hub plays titles **from Kodi's own library**. That gives you normal Kodi playback, resume points and subtitles, and your media server stays the one source of truth.
+
+### Plex
+
+Install and sign in to **PlexKodiConnect**, and let it sync your libraries. Seerr Hub finds the title in the Kodi library that PlexKodiConnect builds, and uses PlexKodiConnect's login when it needs to talk to Plex. **There's nothing to fill in.**
+
+### Jellyfin
+
+Install **Jellyfin for Kodi** (from the Jellyfin repository) and sync your libraries. If it's signed in, Seerr Hub uses its login and you can leave the Jellyfin settings blank.
+
+If you'd rather not use that add-on's login (or it's on a different user), fill in the **Server address**, **API key** and **User name** settings.
+
+### Emby
+
+This works the same way as Jellyfin, using **Emby for Kodi**. Emby goes through the same code as Jellyfin but **hasn't been tested on a real Emby server yet**. Reports welcome.
+
+### Not in Kodi's library yet?
+
+If Seerr says a title is available but your Kodi library hasn't caught up, the menu says *"In Plex - not in Kodi's library yet"*. On Android it offers to open the Plex / Jellyfin / Emby app instead.
+
+## Downloads: pick a release and watch while it downloads
+
+This part is optional, and is for people who already run Radarr and Sonarr behind Seerr. Watching while it downloads also needs qBittorrent.
+
+### Choose the release
+
+**Download - choose the release...** runs an interactive search in Radarr or Sonarr. These are the same servers, quality profile, root folder and tags that Seerr would use. You get a ranked list:
+
+```
+* WEBDL-2160p - 14.2 GB - 312 seeds          <- best pick
+  Bluray-1080p - 9.8 GB - 84 seeds
+  WEBDL-1080p - 4.1 GB - no seeds
+x Remux-2160p - 61.0 GB - 40 seeds           <- outside your profile
+```
+
+Pick one to see the details (indexer, MB per minute against your size settings, bitrate, custom formats, and why Radarr/Sonarr would reject it) before you send it.
+
+Releases are ranked by:
+
+| | Weight | |
+|---|---|---|
+| Quality | 30% | Where it sits in your quality profile |
+| Seeders | 30% | Full marks at 200+ |
+| Size | 20% | How close it is to the *preferred* size in Radarr/Sonarr (MB per minute) |
+| Custom formats | 15% | Your custom format score |
+| Streamable | 5% | Fits under qBittorrent's download speed limit, if you set one |
+
+Releases with no seeders are pushed far down, and releases Radarr/Sonarr would reject always sort below the ones they'd accept. For TV, season packs come first, then each episode's releases in order (the episode you asked for at the very top), with the best one for each episode starred. When qBittorrent is set up, only torrents are listed, since watching while downloading needs one.
+
+Once you pick a release, it goes to Radarr/Sonarr, so they import and rename it as usual. If the title isn't in Radarr/Sonarr yet, it's added first, without an automatic search. With qBittorrent set up, Seerr Hub then waits for the torrent to appear and offers to watch it.
+
+### Watch while it downloads
+
+When you start watching a download, Seerr Hub:
+
+1. switches the torrent to **sequential download** (first and last pieces first) and starts it if it was queued
+2. works out how much of the file is on disk **from the start, with no gaps**, and how fast it's downloading
+3. offers **Watch now** once the download is safely ahead of playback (20% margin, at least 90 seconds buffered), or **Start by itself when it's safe**, with a live progress window
+
+The **Downloading** list shows every active Radarr/Sonarr download with progress and *Watch now* / *Ready in ~12 min* / *Stalled*.
+
+### Watched status is kept
+
+Kodi's media server never sees playback of a file straight from the downloads folder. So Seerr Hub remembers how far you got. Every 10 minutes it checks, and once Radarr/Sonarr have imported the file and it shows up in Plex / Jellyfin / Emby, it marks it **watched** (past 90%) or saves your **resume point** there. Titles that never turn up are forgotten after 30 days.
+
+## Using it from skins and TMDb Helper
+
+### Context menu
+
+Every movie, show, season and episode in Kodi gets a **Watch or request (Seerr Hub)** context-menu item. This covers library items, TMDb Helper lists and skin widgets.
+
+### TMDb Helper player
+
+Copy [`seerrhub.json`](seerrhub.json) to:
+
+```
+userdata/addon_data/plugin.video.themoviedb.helper/players/
+```
+
+**Seerr Hub** then shows up as a player in TMDb Helper. To make every *Play* button in a TMDb Helper-based skin (Arctic Fuse, Arctic Horizon...) go through Seerr Hub, set it as the default player for movies and episodes in TMDb Helper's settings.
+
+### Skin widgets
+
+Any Seerr Hub folder works as a widget:
+
+| Widget | Path |
 |---|---|
-| Web UI address | qBittorrent Web UI, e.g. `http://192.168.1.10:8080` |
-| User name / Password | Leave blank if qBittorrent skips login for your network |
-| Download folder as Kodi sees it | qBittorrent's download folder shared to Kodi, e.g. `smb://nas/downloads/` (read-only is fine) |
+| Trending | `plugin://plugin.video.seerrhub/?action=trending` |
+| My requests | `plugin://plugin.video.seerrhub/?action=requests` |
+| Downloading | `plugin://plugin.video.seerrhub/?action=downloads&reload=$INFO[Window(Home).Property(seerrhub.downloads)]` |
 
-With qBittorrent set up you get:
-- **Download - choose the release**: Radarr/Sonarr's interactive search, ranked by your quality profile, with sizes, seeders and an estimate of whether it can be watched while downloading
-- a **Downloading** list, where you can start watching once enough of the file is in (the add-on turns on sequential download for that torrent)
-- watched status and resume points from those downloads are copied to Plex / Jellyfin / Emby once Radarr/Sonarr have imported the file
+The `reload=` part on the Downloading widget keeps it up to date: while something is downloading, the add-on changes that property every 30 seconds, which makes the skin reload the widget.
 
-## TMDb Helper player
+### Search button
 
-Copy [`seerrhub.json`](seerrhub.json) into `userdata/addon_data/plugin.video.themoviedb.helper/players/`. "Seerr Hub" then shows up as a player, and you can make it the default player in TMDb Helper's settings.
-
-## Home-screen widgets
-
-Any Seerr Hub folder works as a skin widget, e.g. `plugin://plugin.video.seerrhub/?action=trending`.
-
-To keep a **Downloading** widget up to date, add this to the end of its path:
+For a skin menu item that opens the Seerr Hub search keyboard straight away:
 
 ```
-plugin://plugin.video.seerrhub/?action=downloads&reload=$INFO[Window(Home).Property(seerrhub.downloads)]
+RunPlugin(plugin://plugin.video.seerrhub/?action=ask)
 ```
 
-While something is downloading, the add-on's background service changes that property every 30 seconds, which makes the skin reload the widget.
+### Other links
 
-For a skin menu "Search" button, use `RunPlugin(plugin://plugin.video.seerrhub/?action=ask)`.
+| Action | Path |
+|---|---|
+| Open the menu for a movie | `plugin://plugin.video.seerrhub/?action=open&type=movie&tmdb_id=122917` |
+| ...for an episode | `plugin://plugin.video.seerrhub/?action=open&type=tv&tmdb_id=1396&season=1&episode=1` |
+| Search with a word already filled in | `plugin://plugin.video.seerrhub/?action=search&query=hobbit` |
 
-## Supported streaming apps
+## Streaming apps
 
-Netflix, Prime Video, Disney+, HBO Max, Hulu, Apple TV+, Paramount+, Peacock, Crunchyroll, MUBI, Tubi, Pluto TV, YouTube, Crave, BBC iPlayer, ITVX, Stan, Binge, Kayo, ABC iview, SBS On Demand, 9Now, 7plus, 10 Play. The list is in `resources/lib/api.py` (`SERVICES`). Adding an app means adding its JustWatch name and Android package name there.
+Seerr Hub uses [JustWatch](https://www.justwatch.com) data to see which services have a title **in your region**. On Android it opens the official app straight to that title, if the app is installed.
+
+| Region | Apps |
+|---|---|
+| Worldwide | Netflix, Prime Video, Disney+, HBO Max, Apple TV+, Paramount+, YouTube, Crunchyroll, MUBI |
+| US / Canada | Hulu, Peacock, Tubi, Pluto TV, Crave |
+| UK | BBC iPlayer, ITVX |
+| Australia | Stan, Binge, Kayo, ABC iview, SBS On Demand, 9Now, 7plus, 10 Play |
+
+Services that aren't in this list, or whose app isn't installed, are still named in the menu title, e.g. *"also on Paramount+"*.
+
+**Adding an app** takes one line in `resources/lib/api.py` (`SERVICES`): the JustWatch name, the display name, the Android package name, and whether to open the web link or the app link. Pull requests welcome.
+
+## Troubleshooting
+
+<details>
+<summary><b>The "Open in Netflix" (etc.) option doesn't show up</b></summary>
+
+- Only Android can open other apps. On Windows, Linux and macOS the service is named in the title instead.
+- The app has to be installed, and the title has to be on that service **in your region**. Check the Streaming region setting, or the region in Seerr.
+</details>
+
+<details>
+<summary><b>"In Plex - not in Kodi's library yet"</b></summary>
+
+Seerr knows the title is on your server, but PlexKodiConnect / Jellyfin for Kodi hasn't synced it into Kodi yet. Wait for the next sync, or start one from that add-on.
+</details>
+
+<details>
+<summary><b>"Kodi can't see the downloads folder yet" / downloads won't play</b></summary>
+
+Set **Download folder as Kodi sees it** to qBittorrent's *default save path*, as a share Kodi can open. Test it first in Kodi's file manager. For example, qBittorrent saves to `/data/downloads` and the NAS shares that folder as `smb://nas/downloads/`.
+</details>
+
+<details>
+<summary><b>"qBittorrent wants a login" / "refused the login"</b></summary>
+
+Fill in the qBittorrent user name and password, or allow your network in qBittorrent: **Options → Web UI → Bypass authentication for clients in whitelisted IP subnets**.
+</details>
+
+<details>
+<summary><b>Watched status isn't copied to Jellyfin</b></summary>
+
+Check that Jellyfin for Kodi is signed in, or fill in the Jellyfin settings. Seerr Hub needs a user to update. If you use an API key with several users on the server, set **User name**.
+</details>
+
+<details>
+<summary><b>Where are the logs?</b></summary>
+
+In Kodi's log (`kodi.log`). Every line from this add-on starts with `[seerrhub]`, and watched-status sync lines start with `[seerrhub] sync:`.
+</details>
+
+## Privacy
+
+Seerr Hub only talks to:
+
+- **your own servers**: Seerr, and if you set them up, Plex / Jellyfin / Emby, Radarr / Sonarr (through Seerr's settings) and qBittorrent
+- **JustWatch's public API**, to look up where a title streams (title name + region only)
+- **TMDb's image server**, for posters
+
+There's no account, no tracking and no analytics. API keys stay in Kodi's settings on your device.
+
+## Building and contributing
+
+```sh
+git clone https://github.com/Mooseca/plugin.video.seerrhub
+cd plugin.video.seerrhub
+python3 build.py        # -> plugin.video.seerrhub-<version>.zip
+```
+
+The add-on is plain Python with no extra dependencies:
+
+| File | What's in it |
+|---|---|
+| `default.py` | Menus and lists (Search, Trending, My requests, Downloading) |
+| `context.py` | The "Watch or request" context-menu item |
+| `service.py` | Background service: watched-status sync and the Downloading widget refresh |
+| `resources/lib/hub.py` | The title menu, release picker and watch-while-downloading |
+| `resources/lib/api.py` | Seerr, JustWatch, Radarr/Sonarr and qBittorrent clients, and release ranking |
+| `resources/lib/mediasync.py` | Watched / resume-point sync to Plex, Jellyfin and Emby |
+
+Bug reports and pull requests are welcome, especially from **Emby** users and from regions whose streaming apps aren't mapped yet.
+
+## Credits
+
+Built on the work of [Seerr](https://github.com/seerr-team/seerr) / Overseerr / Jellyseerr, [PlexKodiConnect](https://github.com/croneter/PlexKodiConnect), [Jellyfin for Kodi](https://github.com/jellyfin/jellyfin-kodi), [TMDb Helper](https://github.com/jurialmunkey/plugin.video.themoviedb.helper), and the streaming data from [JustWatch](https://www.justwatch.com). Not affiliated with any of them, or with any streaming service.
 
 ## License
 
-MIT
+[MIT](LICENSE)
