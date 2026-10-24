@@ -91,13 +91,21 @@ Everything that applies is listed together, best option first. Nothing is ever s
 
 ## Install
 
-1. Download `plugin.video.seerrhub-<version>.zip` from the [latest release](https://github.com/Mooseca/plugin.video.seerrhub/releases/latest).
-   - On a TV box, it's often easiest to put the zip on a network share or USB stick.
-2. In Kodi, go to **Settings → System → Add-ons** and turn on **Unknown sources**.
-3. Go to **Settings → Add-ons → Install from zip file** and pick the zip.
-4. Open **Add-ons → Video add-ons → Seerr Hub → Configure** (or long-press → Settings).
+**From the Mooseca repository** (recommended: Kodi keeps it up to date by itself)
 
-To update, install the newer zip the same way. Your settings are kept.
+1. In Kodi, go to **Settings → System → Add-ons** and turn on **Unknown sources**.
+2. Go to **Settings → File manager → Add source**, choose `<None>` and enter
+   ```
+   https://mooseca.github.io/repository.mooseca/
+   ```
+   then name it `mooseca`.
+3. Go to **Settings → Add-ons → Install from zip file → mooseca** and pick `repository.mooseca-1.0.0.zip`.
+4. Go to **Install from repository → Mooseca Repository → Video add-ons → Seerr Hub → Install**.
+5. Open **Add-ons → Video add-ons → Seerr Hub → Configure** (or long-press → Settings).
+
+**From a zip** (no automatic updates)
+
+Download `plugin.video.seerrhub-<version>.zip` from the [latest release](https://github.com/Mooseca/plugin.video.seerrhub/releases/latest), turn on **Unknown sources** as above, then use **Install from zip file** on it. On a TV box it's often easiest to put the zip on a network share or USB stick. To update, install the newer zip the same way. Your settings are kept.
 
 ## Quick start
 
@@ -378,6 +386,8 @@ git clone https://github.com/Mooseca/plugin.video.seerrhub
 cd plugin.video.seerrhub
 python3 build.py        # -> plugin.video.seerrhub-<version>.zip
 ```
+
+Releases go out as a GitHub release and through the [Mooseca repository](https://github.com/Mooseca/repository.mooseca) (`python3 build.py <zip>` there, then push).
 
 The add-on is plain Python with no extra dependencies:
 
