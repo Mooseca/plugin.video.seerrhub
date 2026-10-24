@@ -1,4 +1,5 @@
 # Seerr and JustWatch clients. Standard library only, so the add-on has no dependencies.
+import base64
 import http.cookiejar
 import json
 import math
@@ -174,8 +175,41 @@ def art(item):
     return a
 
 
-class QBit(object):
+# ---- download clients ----
+# Every client hands back the same shapes, so the rest of the add-on doesn't care which one it is:
+#   torrent: {'hash', 'name', 'progress' (0-1), 'dlspeed' (bytes/s), 'state', 'added_on', 'save_path'}
+#            state is one of downloading / queued / paused / checking / done
+#   file:    {'index', 'name' (path inside the save folder), 'size', 'progress' (0-1), 'piece_range' (first, last)}
+#   pieces:  [True/False] per piece: finished or not
+
+def _piece_ranges(files, piece_size):
+    """Torrent files sit end to end in piece space, in the order the torrent lists them."""
+    offset = 0
+    for f in files:
+        f['piece_range'] = (offset // piece_size, max(offset, offset + f['size'] - 1) // piece_size)
+        offset += f['size']
+    return files
+
+
+class TorrentClient(object):
+    name = 'the download client'
+    can_stream = True  # can tell which pieces are on disk, so watching while it downloads works
+
+    def incomplete(self):
+        return [t for t in self.torrents() if t['progress'] < 1]
+
+    def torrent(self, h):
+        t = self.torrents(h)
+        if not t:
+            raise SeerrError('That download is no longer in %s' % self.name)
+        return t[0]
+
+
+class QBit(TorrentClient):
     """qBittorrent Web API. Logs in only when the server asks for it (it can skip auth for the local network)."""
+    name = 'qBittorrent'
+    STATES = {'queuedDL': 'queued', 'stoppedDL': 'paused', 'pausedDL': 'paused', 'checkingDL': 'checking',
+              'checkingResumeData': 'checking', 'moving': 'checking'}
 
     def __init__(self, url, user='', password=''):
         self.root = url.rstrip('/')
@@ -221,20 +255,24 @@ class QBit(object):
         except ValueError:
             return body.decode(errors='replace')
 
-    def torrents(self, hashes=None):
-        return self._call('/torrents/info', {'hashes': hashes} if hashes else None)
-
-    def incomplete(self):
-        return [t for t in self.torrents() if t['progress'] < 1]
+    def torrents(self, h=None):
+        out = []
+        for t in self._call('/torrents/info', {'hashes': h.lower()} if h else None):
+            avg = t.get('downloaded', 0) / float(max(1, t.get('time_active') or 0))
+            state = 'done' if t['progress'] >= 1 else self.STATES.get(t['state'], 'downloading')
+            out.append({'hash': t['hash'].lower(), 'name': t['name'], 'progress': t['progress'],
+                        'dlspeed': t['dlspeed'] or (avg if state == 'downloading' else 0), 'state': state,
+                        'added_on': t['added_on'], 'save_path': t['save_path'], 'raw': t})
+        return out
 
     def files(self, h):
         return self._call('/torrents/files', {'hash': h})
 
     def pieces(self, h):
-        return self._call('/torrents/pieceStates', {'hash': h})
+        return [s == 2 for s in self._call('/torrents/pieceStates', {'hash': h})]
 
-    def properties(self, h):
-        return self._call('/torrents/properties', {'hash': h})
+    def piece_size(self, h):
+        return self._call('/torrents/properties', {'hash': h})['piece_size']
 
     def rate_limit(self):
         """Download cap in bytes/s, or 0 for none."""
@@ -245,17 +283,254 @@ class QBit(object):
 
     def make_watchable(self, t):
         """Download in order, first/last pieces first, and don't sit in the queue. Returns what changed."""
-        h, done = t['hash'], []
-        if not t['seq_dl']:
+        h, raw, done = t['hash'], t['raw'], []
+        if not raw['seq_dl']:
             self._call('/torrents/toggleSequentialDownload', post={'hashes': h})
             done.append('in order')
-        if not t['f_l_piece_prio']:
+        if not raw['f_l_piece_prio']:
             self._call('/torrents/toggleFirstLastPiecePrio', post={'hashes': h})
-        if t['state'] in ('queuedDL', 'stoppedDL', 'pausedDL'):
-            self._call('/torrents/start', post={'hashes': h})
+        if t['state'] in ('queued', 'paused'):
+            try:
+                self._call('/torrents/start', post={'hashes': h})  # qBittorrent 5
+            except SeerrError:
+                self._call('/torrents/resume', post={'hashes': h})  # qBittorrent 4
             self._call('/torrents/setForceStart', post={'hashes': h, 'value': 'true'})
             done.append('started now')
         return done
+
+
+class Transmission(TorrentClient):
+    """Transmission RPC (2.x to 4.x). Downloading in order needs Transmission 4.1 or newer."""
+    name = 'Transmission'
+    STATES = {0: 'paused', 1: 'checking', 2: 'checking', 3: 'queued', 4: 'downloading'}
+
+    def __init__(self, url, user='', password=''):
+        url = url.rstrip('/')
+        self.url = url if url.endswith('/rpc') else url + '/transmission/rpc'
+        self.headers = {'Content-Type': 'application/json', 'X-Transmission-Session-Id': ''}
+        if user or password:
+            self.headers['Authorization'] = 'Basic ' + base64.b64encode(('%s:%s' % (user, password)).encode()).decode()
+
+    def _call(self, method, args=None):
+        body = json.dumps({'method': method, 'arguments': args or {}}).encode()
+        try:
+            for _ in range(2):  # the first call is answered 409 with the session id to use
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(self.url, body, self.headers), timeout=15) as r:
+                        out = json.load(r)
+                    break
+                except urllib.error.HTTPError as e:
+                    if e.code == 409:
+                        self.headers['X-Transmission-Session-Id'] = e.headers.get('X-Transmission-Session-Id', '')
+                        continue
+                    if e.code in (401, 403):
+                        raise SeerrError('Transmission refused the login - check the user name and password '
+                                         '(or its rpc-whitelist)')
+                    raise
+        except SeerrError:
+            raise
+        except Exception as e:
+            raise SeerrError('Cannot reach Transmission: %s' % e)
+        if out.get('result') != 'success':
+            raise SeerrError('Transmission said: %s' % out.get('result'))
+        return out.get('arguments', {})
+
+    def _get(self, h, fields):
+        args = {'fields': fields}
+        if h:
+            args['ids'] = [h.lower()]
+        return self._call('torrent-get', args)['torrents']
+
+    def torrents(self, h=None):
+        out = []
+        for t in self._get(h, ['hashString', 'name', 'percentDone', 'rateDownload', 'status', 'addedDate', 'downloadDir',
+                               'sequential_download']):
+            state = 'done' if t['percentDone'] >= 1 else self.STATES.get(t['status'], 'downloading')
+            out.append({'hash': t['hashString'].lower(), 'name': t['name'], 'progress': t['percentDone'],
+                        'dlspeed': t['rateDownload'], 'state': state, 'added_on': t['addedDate'],
+                        'save_path': t['downloadDir'], 'raw': t})
+        return out
+
+    def files(self, h):
+        t = self._get(h, ['files', 'pieceSize'])[0]
+        files = [{'index': i, 'name': f['name'], 'size': f['length'], 'progress': f['bytesCompleted'] / float(max(1, f['length']))}
+                 for i, f in enumerate(t['files'])]
+        return _piece_ranges(files, t['pieceSize'])
+
+    def pieces(self, h):
+        t = self._get(h, ['pieces', 'pieceCount'])[0]
+        bits = base64.b64decode(t['pieces'])
+        return [bool(bits[i >> 3] & (0x80 >> (i & 7))) for i in range(t['pieceCount'])]
+
+    def piece_size(self, h):
+        return self._get(h, ['pieceSize'])[0]['pieceSize']
+
+    def _session(self):
+        return self._call('session-get', {'fields': ['download-dir', 'speed-limit-down', 'speed-limit-down-enabled',
+                                                     'alt-speed-enabled', 'alt-speed-down']})
+
+    def rate_limit(self):
+        s = self._session()
+        if s.get('alt-speed-enabled'):  # "turtle mode" wins over the normal limit
+            return s['alt-speed-down'] * 1000
+        return s['speed-limit-down'] * 1000 if s.get('speed-limit-down-enabled') else 0
+
+    def save_root(self):
+        return self._session()['download-dir'].rstrip('/')
+
+    def make_watchable(self, t):
+        done = []
+        if 'sequential_download' not in t['raw']:
+            done.append('as fast as it can (Transmission 4.1 or newer can download in order)')
+        elif not t['raw']['sequential_download']:
+            self._call('torrent-set', {'ids': [t['hash']], 'sequential_download': True})  # this name even in the old API
+            done.append('in order')
+        if t['state'] in ('queued', 'paused'):
+            self._call('torrent-start-now', {'ids': [t['hash']]})
+            done.append('started now')
+        return done
+
+
+class Deluge(TorrentClient):
+    """Deluge 2 through its Web UI (the Web UI needs to be connected to the daemon; this connects it if not)."""
+    name = 'Deluge'
+    STATES = {'Queued': 'queued', 'Paused': 'paused', 'Checking': 'checking', 'Moving': 'checking',
+              'Allocating': 'checking'}
+    KEYS = ['name', 'progress', 'download_payload_rate', 'state', 'time_added', 'save_path', 'sequential_download',
+            'prioritize_first_last']
+
+    def __init__(self, url, user='', password=''):
+        url = url.rstrip('/')
+        self.url = url if url.endswith('/json') else url + '/json'
+        self.password = password or 'deluge'  # Deluge's out-of-the-box password
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.n = 0
+
+    def _raw(self, method, *params):
+        self.n += 1
+        body = json.dumps({'method': method, 'params': list(params), 'id': self.n}).encode()
+        req = urllib.request.Request(self.url, body, {'Content-Type': 'application/json'})
+        try:
+            with self.opener.open(req, timeout=15) as r:
+                return json.load(r)
+        except Exception as e:
+            raise SeerrError('Cannot reach Deluge: %s' % e)
+
+    def _connect(self):
+        if not self._raw('auth.login', self.password).get('result'):
+            raise SeerrError('Deluge refused the password - check it in Seerr Hub settings')
+        if not self._raw('web.connected').get('result'):
+            hosts = self._raw('web.get_hosts').get('result') or []
+            if not hosts:
+                raise SeerrError('Deluge\'s Web UI has no daemon to connect to')
+            self._raw('web.connect', hosts[0][0])
+
+    def _call(self, method, *params):
+        for attempt in (0, 1):
+            out = self._raw(method, *params)
+            err = out.get('error')
+            if not err:
+                return out.get('result')
+            # 1: not logged in; 2: "unknown method", which is what the Web UI says while it has no daemon
+            if attempt == 0 and err.get('code') in (1, 2):
+                self._connect()
+                continue
+            raise SeerrError('Deluge said: %s' % err.get('message', '')[:200])
+
+    def torrents(self, h=None):
+        found = self._call('core.get_torrents_status', {'id': [h.lower()]} if h else {}, self.KEYS) or {}
+        out = []
+        for key, t in found.items():
+            progress = t['progress'] / 100.0
+            state = 'done' if progress >= 1 else self.STATES.get(t['state'], 'downloading')
+            out.append({'hash': key.lower(), 'name': t['name'], 'progress': progress, 'dlspeed': t['download_payload_rate'],
+                        'state': state, 'added_on': t['time_added'], 'save_path': t['save_path'], 'raw': t})
+        return out
+
+    def _status(self, h, keys):
+        return self._call('core.get_torrent_status', h, keys) or {}
+
+    def files(self, h):
+        t = self._status(h, ['files', 'file_progress', 'piece_length'])
+        prog = t.get('file_progress') or []
+        files = [{'index': f['index'], 'name': f['path'], 'size': f['size'],
+                  'progress': prog[n] if n < len(prog) else 0} for n, f in enumerate(t.get('files') or [])]
+        size = t['piece_length']
+        for f, raw in zip(files, t.get('files') or []):
+            f['piece_range'] = (raw['offset'] // size, max(raw['offset'], raw['offset'] + raw['size'] - 1) // size)
+        return files
+
+    def pieces(self, h):
+        t = self._status(h, ['pieces', 'num_pieces', 'progress'])
+        if not t.get('pieces'):  # Deluge leaves it empty once everything is there
+            return [t.get('progress', 0) >= 100] * (t.get('num_pieces') or 0)
+        return [p == 3 for p in t['pieces']]
+
+    def piece_size(self, h):
+        return self._status(h, ['piece_length'])['piece_length']
+
+    def rate_limit(self):
+        kib = self._call('core.get_config_value', 'max_download_speed') or -1
+        return int(kib * 1024) if kib > 0 else 0
+
+    def save_root(self):
+        return (self._call('core.get_config_value', 'download_location') or '').rstrip('/')
+
+    def make_watchable(self, t):
+        h, raw, done = t['hash'], t['raw'], []
+        if not raw.get('sequential_download') or not raw.get('prioritize_first_last'):
+            self._call('core.set_torrent_options', [h], {'sequential_download': True, 'prioritize_first_last_pieces': True})
+            if not raw.get('sequential_download'):
+                done.append('in order')
+        if t['state'] in ('queued', 'paused'):
+            self._call('core.set_torrent_options', [h], {'auto_managed': False})  # so the queue can't hold it back
+            self._call('core.resume_torrent', [h])
+            done.append('started now')
+        return done
+
+
+class ArrQueue(TorrentClient):
+    """Any download client (SABnzbd, NZBGet, rTorrent, ...): what Radarr/Sonarr's queue says about it.
+    Shows progress and time left, but can't tell what's playable, so no watching while it downloads."""
+    name = 'Radarr/Sonarr'
+    can_stream = False
+    STATES = {'queued': 'queued', 'paused': 'paused', 'delay': 'queued', 'downloadClientUnavailable': 'paused'}
+
+    def __init__(self, seerr):
+        self.seerr, self.queue = seerr, None
+
+    def entries(self):
+        if self.queue is None:
+            self.queue = arr_queue(self.seerr)
+        return self.queue
+
+    def torrents(self, h=None):
+        out = []
+        for key, q in self.entries().items():
+            if h and key != h.lower():
+                continue
+            size = q.get('size') or 0
+            progress = 1 - (q.get('sizeleft') or 0) / float(size) if size else 0
+            state = 'done' if progress >= 1 else self.STATES.get(q.get('status'), 'downloading')
+            out.append({'hash': key, 'name': q.get('release') or q.get('title'), 'progress': progress, 'dlspeed': 0,
+                        'state': state, 'added_on': q.get('added') or '', 'save_path': '', 'timeleft': q.get('timeleft'),
+                        'client': q.get('client'), 'raw': q})
+        return out
+
+    def rate_limit(self):
+        return 0
+
+
+def timeleft_s(text):
+    """Radarr/Sonarr's '1.02:03:04' / '02:03:04' as seconds, None if missing."""
+    m = re.match(r'(?:(\d+)\.)?(\d+):(\d+):(\d+)', text or '')
+    if not m:
+        return None
+    d, h, mi, s = (int(x or 0) for x in m.groups())
+    return ((d * 24 + h) * 60 + mi) * 60 + s
+
+
+CLIENTS = [QBit, Transmission, Deluge]  # in the order of the "Download client" setting
 
 
 def same_release(a, b):
@@ -314,17 +589,19 @@ class Arr(object):
         for q in records:
             if not q.get('downloadId'):
                 continue
+            progress = {k: q.get(k) for k in ('size', 'sizeleft', 'timeleft', 'status', 'added')}
+            progress['client'] = q.get('downloadClient')
             if self.kind == 'radarr':
                 m = q.get('movie') or {}
                 out.append({'hash': q['downloadId'].lower(), 'type': 'movie', 'tmdb_id': m.get('tmdbId'),
                             'title': m.get('title') or q.get('title'), 'year': m.get('year'), 'runtime': m.get('runtime'),
-                            'release': q.get('title')})
+                            'release': q.get('title'), **progress})
             else:
                 s, e = q.get('series') or {}, q.get('episode') or {}
                 out.append({'hash': q['downloadId'].lower(), 'type': 'tv', 'tmdb_id': s.get('tmdbId'),
                             'title': s.get('title') or q.get('title'), 'season': e.get('seasonNumber'),
                             'episode': e.get('episodeNumber'), 'runtime': e.get('runtime') or s.get('runtime'),
-                            'release': q.get('title')})
+                            'release': q.get('title'), **progress})
         return out
 
     def size_limits(self, profile_id=None):
@@ -439,7 +716,7 @@ def estimate(f, states, piece_size, speed, runtime_s):
     first, last = f['piece_range']
     run = 0
     for s in states[first:last + 1]:
-        if s != 2:
+        if not s:
             break
         run += 1
     size = f['size']
@@ -453,7 +730,7 @@ def estimate(f, states, piece_size, speed, runtime_s):
     else:
         wait = max(0.0, left * SAFETY / speed - left / bitrate, (MIN_BUFFER * bitrate - have) / speed)
     return {'have': have, 'size': size, 'buffer_s': have / bitrate, 'bitrate': bitrate, 'speed': speed,
-            'wait': wait, 'ready': wait == 0, 'tail': states[last] == 2 if states else False,
+            'wait': wait, 'ready': wait == 0, 'tail': bool(states and states[last]),
             'runtime': runtime_s}
 
 

@@ -45,20 +45,24 @@ def add_titles(items):
 
 
 def add_downloads(s):
-    qb = hub.qbit()
-    rows = hub.active_downloads(s)
+    qb = hub.client(s)
+    rows = hub.active_downloads(s, qb)
     if not rows:
         li = xbmcgui.ListItem('Nothing downloading right now')
         xbmcplugin.addDirectoryItem(HANDLE, '', li, isFolder=False)
-    for h, q in rows:
-        try:
-            t, f, e = hub.check(qb, h, q)
-            line = '%d%%  -  %s' % (t['progress'] * 100, hub.verdict(e, t))
-            plot = '%s of %s ready to play.[CR]Downloading at %s, the file needs %s.[CR]%s' % (
-                api.mins(e['buffer_s']), api.mins(e['runtime']), api.mbps(e['speed']), api.mbps(e['bitrate']),
-                q.get('torrent', ''))
-        except api.SeerrError as err:
-            line, plot = str(err), q.get('torrent', '')
+    for h, q, t in rows:
+        if not qb.can_stream:  # only Radarr/Sonarr's queue to go on
+            line = '%d%%  -  %s' % (t['progress'] * 100, hub.queue_verdict(t))
+            plot = 'Downloading in %s.[CR]%s' % (t.get('client') or 'the download client', q.get('torrent', ''))
+        else:
+            try:
+                t, f, e = hub.check(qb, h, q)
+                line = '%d%%  -  %s' % (t['progress'] * 100, hub.verdict(e, t))
+                plot = '%s of %s ready to play.[CR]Downloading at %s, the file needs %s.[CR]%s' % (
+                    api.mins(e['buffer_s']), api.mins(e['runtime']), api.mbps(e['speed']), api.mbps(e['bitrate']),
+                    q.get('torrent', ''))
+            except api.SeerrError as err:
+                line, plot = str(err), q.get('torrent', '')
         title = q.get('title', '') + hub.episode_tag(q)
         li = xbmcgui.ListItem('%s  [%s]' % (title, line))
         tag = li.getVideoInfoTag()

@@ -86,7 +86,7 @@ Everything that applies is listed together, best option first. Nothing is ever s
 | **Plex + [PlexKodiConnect](https://github.com/croneter/PlexKodiConnect)** | Optional | For "Play from Plex". |
 | **Jellyfin / Emby** (+ [Jellyfin for Kodi](https://github.com/jellyfin/jellyfin-kodi)) | Optional | For "Play from Jellyfin". |
 | **Radarr / Sonarr** | Optional | Already connected to Seerr. Lets you pick the release yourself. |
-| **qBittorrent** | Optional | For the Downloading list and watching while it downloads. |
+| **qBittorrent, Transmission or Deluge** | Optional | For watching while it downloads. Any other client (SABnzbd, NZBGet, rTorrent...) still shows up in the Downloading list through Radarr/Sonarr. |
 | **Android TV device** | Optional | Only Android can open other apps. On other systems the "Open in ..." options are just left out. |
 
 ## Install
@@ -135,11 +135,20 @@ That's it. Leave **Media server** on *Ask Seerr*, and Seerr Hub uses whichever s
 
 | Setting | What to put | Example |
 |---|---|---|
-| Web UI address | qBittorrent's Web UI | `http://192.168.1.10:8080` |
-| User name / Password | Leave blank if qBittorrent lets your network in without a login (*Bypass authentication for clients in whitelisted IP subnets*). | |
-| Download folder as Kodi sees it | qBittorrent's **default save path**, shared to Kodi. Read-only is fine. Sub-folders (categories) are worked out automatically. | `smb://nas/downloads/` or `nfs://nas/downloads/` |
+| Client | qBittorrent, Transmission or Deluge | |
+| Web UI address | The client's Web UI. Default ports: qBittorrent 8080, Transmission 9091, Deluge 8112. | `http://192.168.1.10:9091` |
+| User name / Password | qBittorrent / Transmission: leave blank if there's no login. Deluge only has a Web UI password (blank = Deluge's default, `deluge`). | |
+| Download folder as Kodi sees it | The client's **default download folder**, shared to Kodi. Read-only is fine. Sub-folders (categories, labels) are worked out automatically. | `smb://nas/downloads/` or `nfs://nas/downloads/` |
 
-Without qBittorrent you can still pick releases (Radarr/Sonarr send them to whatever download client they use). Only the Downloading list and watch-while-downloading need it.
+| Your download client | Pick releases | Downloading list | Watch while it downloads |
+|---|---|---|---|
+| qBittorrent | Yes | Yes, with what's playable | Yes |
+| Transmission 4.1+ | Yes | Yes, with what's playable | Yes |
+| Transmission 4.0 or older | Yes | Yes, with what's playable | Yes, but it can't download in order, so it's usually ready later |
+| Deluge 2 | Yes | Yes, with what's playable | Yes |
+| Anything else (SABnzbd, NZBGet, rTorrent, ...), or leave the address blank | Yes | Yes, progress and time left from Radarr/Sonarr's queue | No |
+
+You can still pick releases without any client set up, because Radarr/Sonarr send them to whatever download client they use.
 
 ## Plex, Jellyfin and Emby
 
@@ -165,7 +174,7 @@ If Seerr says a title is available but your Kodi library hasn't caught up, the m
 
 ## Downloads: pick a release and watch while it downloads
 
-This part is optional, and is for people who already run Radarr and Sonarr behind Seerr. Watching while it downloads also needs qBittorrent.
+This part is optional, and is for people who already run Radarr and Sonarr behind Seerr. Watching while it downloads also needs qBittorrent, Transmission or Deluge.
 
 ### Choose the release
 
@@ -188,21 +197,21 @@ Releases are ranked by:
 | Seeders | 30% | Full marks at 200+ |
 | Size | 20% | How close it is to the *preferred* size in Radarr/Sonarr (MB per minute) |
 | Custom formats | 15% | Your custom format score |
-| Streamable | 5% | Fits under qBittorrent's download speed limit, if you set one |
+| Streamable | 5% | Fits under your torrent client's download speed limit, if you set one |
 
-Releases with no seeders are pushed far down, and releases Radarr/Sonarr would reject always sort below the ones they'd accept. For TV, season packs come first, then each episode's releases in order (the episode you asked for at the very top), with the best one for each episode starred. When qBittorrent is set up, only torrents are listed, since watching while downloading needs one.
+Releases with no seeders are pushed far down, and releases Radarr/Sonarr would reject always sort below the ones they'd accept. For TV, season packs come first, then each episode's releases in order (the episode you asked for at the very top), with the best one for each episode starred. When a torrent client is set up, only torrents are listed, since watching while downloading needs one.
 
-Once you pick a release, it goes to Radarr/Sonarr, so they import and rename it as usual. If the title isn't in Radarr/Sonarr yet, it's added first, without an automatic search. With qBittorrent set up, Seerr Hub then waits for the torrent to appear and offers to watch it.
+Once you pick a release, it goes to Radarr/Sonarr, so they import and rename it as usual. If the title isn't in Radarr/Sonarr yet, it's added first, without an automatic search. With a torrent client set up, Seerr Hub then waits for the torrent to appear and offers to watch it.
 
 ### Watch while it downloads
 
 When you start watching a download, Seerr Hub:
 
-1. switches the torrent to **sequential download** (first and last pieces first) and starts it if it was queued
+1. switches the torrent to **sequential download** (in qBittorrent and Deluge, first and last pieces first too) and starts it if it was queued or paused
 2. works out how much of the file is on disk **from the start, with no gaps**, and how fast it's downloading
 3. offers **Watch now** once the download is safely ahead of playback (20% margin, at least 90 seconds buffered), or **Start by itself when it's safe**, with a live progress window
 
-The **Downloading** list shows every active Radarr/Sonarr download with progress and *Watch now* / *Ready in ~12 min* / *Stalled*.
+The **Downloading** list shows every active download with progress and *Watch now* / *Ready in ~12 min* / *Stalled*. Without a torrent client set up it shows Radarr/Sonarr's queue instead: progress and *done in ~25 min*, for any download client including usenet.
 
 ### Watched status is kept
 
@@ -323,13 +332,21 @@ Seerr knows the title is on your server, but PlexKodiConnect / Jellyfin for Kodi
 <details>
 <summary><b>"Kodi can't see the downloads folder yet" / downloads won't play</b></summary>
 
-Set **Download folder as Kodi sees it** to qBittorrent's *default save path*, as a share Kodi can open. Test it first in Kodi's file manager. For example, qBittorrent saves to `/data/downloads` and the NAS shares that folder as `smb://nas/downloads/`.
+Set **Download folder as Kodi sees it** to the torrent client's *default download folder* (qBittorrent: default save path; Transmission: download directory; Deluge: download to), as a share Kodi can open. Test it first in Kodi's file manager. For example, the client saves to `/data/downloads` and the NAS shares that folder as `smb://nas/downloads/`.
 </details>
 
 <details>
-<summary><b>"qBittorrent wants a login" / "refused the login"</b></summary>
+<summary><b>"... wants a login" / "refused the login"</b></summary>
 
-Fill in the qBittorrent user name and password, or allow your network in qBittorrent: **Options → Web UI → Bypass authentication for clients in whitelisted IP subnets**.
+- **qBittorrent:** fill in the user name and password, or allow your network: **Options → Web UI → Bypass authentication for clients in whitelisted IP subnets**.
+- **Transmission:** fill in the RPC user name and password. If it still refuses, add Kodi's address to `rpc-whitelist` in Transmission's `settings.json` (or turn the whitelist off), with Transmission stopped.
+- **Deluge:** put the Web UI password in *Password*. The Web UI must be connected to a daemon. Seerr Hub connects it to the first one in the Web UI's Connection Manager if it isn't.
+</details>
+
+<details>
+<summary><b>Transmission: "as fast as it can" instead of "in order"</b></summary>
+
+Downloading in order needs Transmission 4.1 or newer. Older versions still work, but the start of the file arrives in random order, so *Watch now* comes later, often near the end.
 </details>
 
 <details>
@@ -348,7 +365,7 @@ In Kodi's log (`kodi.log`). Every line from this add-on starts with `[seerrhub]`
 
 Seerr Hub only talks to:
 
-- **your own servers**: Seerr, and if you set them up, Plex / Jellyfin / Emby, Radarr / Sonarr (through Seerr's settings) and qBittorrent
+- **your own servers**: Seerr, and if you set them up, Plex / Jellyfin / Emby, Radarr / Sonarr (through Seerr's settings) and your torrent client
 - **JustWatch's public API**, to look up where a title streams (title name + region only)
 - **TMDb's image server**, for posters
 
@@ -370,7 +387,7 @@ The add-on is plain Python with no extra dependencies:
 | `context.py` | The "Watch or request" context-menu item |
 | `service.py` | Background service: watched-status sync and the Downloading widget refresh |
 | `resources/lib/hub.py` | The title menu, release picker and watch-while-downloading |
-| `resources/lib/api.py` | Seerr, JustWatch, Radarr/Sonarr and qBittorrent clients, and release ranking |
+| `resources/lib/api.py` | Seerr, JustWatch, Radarr/Sonarr, qBittorrent / Transmission / Deluge clients, and release ranking |
 | `resources/lib/mediasync.py` | Watched / resume-point sync to Plex, Jellyfin and Emby |
 
 Bug reports and pull requests are welcome, especially from **Emby** users and from regions whose streaming apps aren't mapped yet.

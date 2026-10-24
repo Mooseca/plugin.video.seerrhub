@@ -69,10 +69,10 @@ class DownloadsRefresher(object):
         self.busy, self.n = None, 0
 
     def tick(self):
-        if not hub.has_qbit():
+        if not hub.configured():
             return
         try:
-            busy = bool(hub.qbit().incomplete())
+            busy = bool(hub.client().incomplete())
         except Exception:
             return
         if busy or self.busy:

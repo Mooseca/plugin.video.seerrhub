@@ -13,10 +13,14 @@
     <setting id="server_user" type="text" label="User name" default=""/>
   </category>
   <category label="Downloads">
-    <setting type="lsep" label="qBittorrent (optional)"/>
-    <setting id="qbit_url" type="text" label="Web UI address (http://ip:8080)" default=""/>
-    <setting id="qbit_user" type="text" label="User name (blank if none)" default=""/>
-    <setting id="qbit_pass" type="text" option="hidden" label="Password" default=""/>
-    <setting id="downloads_path" type="text" label="Download folder as Kodi sees it" default=""/>
+    <setting type="lsep" label="Torrent client (optional: blank = Radarr/Sonarr's queue, no watching while it downloads)"/>
+    <setting id="dl_client" type="enum" label="Client" values="qBittorrent|Transmission|Deluge" default="0"/>
+    <setting id="dl_url" type="text" label="Web UI address (qBittorrent :8080, Transmission :9091, Deluge :8112)" default=""/>
+    <setting id="dl_user" type="text" label="User name (blank if none; Deluge has none)" default="" visible="!eq(-2,2)"/>
+    <setting id="dl_pass" type="text" option="hidden" label="Password (Deluge: blank = deluge)" default=""/>
+    <setting id="downloads_path" type="text" label="Download folder as Kodi sees it (smb://nas/downloads/)" default=""/>
+    <setting id="qbit_url" type="text" label="" default="" visible="false"/>
+    <setting id="qbit_user" type="text" label="" default="" visible="false"/>
+    <setting id="qbit_pass" type="text" label="" default="" visible="false"/>
   </category>
 </settings>

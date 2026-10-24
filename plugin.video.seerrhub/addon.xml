@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.seerrhub" name="Seerr Hub" version="2.0.1" provider-name="Mooseca">
+<addon id="plugin.video.seerrhub" name="Seerr Hub" version="2.1.0" provider-name="Mooseca">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
   </requires>
@@ -17,7 +17,7 @@
   </extension>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_GB">Search everything, open it in the right streaming app, play it from Plex or Jellyfin, or request it in Seerr</summary>
-    <description lang="en_GB">One "watch this" menu for any movie or show. Searches your Seerr / Jellyseerr / Overseerr server, shows where each title streams in your region (JustWatch data) and opens it in the official app on Android TV, plays it from your Plex, Jellyfin or Emby library, or requests it in Seerr. Optionally lets you pick the release yourself through Radarr/Sonarr and start watching while qBittorrent downloads it, then copies watched / resume points to your media server once the title is imported.</description>
+    <description lang="en_GB">One "watch this" menu for any movie or show. Searches your Seerr / Jellyseerr / Overseerr server, shows where each title streams in your region (JustWatch data) and opens it in the official app on Android TV, plays it from your Plex, Jellyfin or Emby library, or requests it in Seerr. Optionally lets you pick the release yourself through Radarr/Sonarr and start watching while qBittorrent, Transmission or Deluge downloads it, then copies watched / resume points to your media server once the title is imported.</description>
     <platform>all</platform>
     <license>MIT</license>
     <source>https://github.com/Mooseca/plugin.video.seerrhub</source>

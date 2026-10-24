@@ -31,14 +31,33 @@ def seerr():
     return api.Seerr(url, key)
 
 
-def has_qbit():
-    return bool(ADDON.getSetting('qbit_url'))
+def configured():
+    return bool(ADDON.getSetting('seerr_url') and ADDON.getSetting('api_key'))
 
 
-def qbit():
-    if not has_qbit():
-        raise api.SeerrError('qBittorrent is not set up - add it in Seerr Hub settings to see downloads')
-    return api.QBit(ADDON.getSetting('qbit_url'), ADDON.getSetting('qbit_user'), ADDON.getSetting('qbit_pass'))
+def client_settings():
+    """(client class, address, user, password) of the torrent client, or None if there isn't one."""
+    if ADDON.getSetting('dl_url'):
+        kind = number(ADDON.getSetting('dl_client')) or 0
+        return (api.CLIENTS[kind if kind < len(api.CLIENTS) else 0], ADDON.getSetting('dl_url'),
+                ADDON.getSetting('dl_user'), ADDON.getSetting('dl_pass'))
+    if ADDON.getSetting('qbit_url'):  # 2.0.x only had qBittorrent
+        return api.QBit, ADDON.getSetting('qbit_url'), ADDON.getSetting('qbit_user'), ADDON.getSetting('qbit_pass')
+    return None
+
+
+def has_client():
+    """A torrent client Seerr Hub can talk to: needed to watch while it downloads."""
+    return client_settings() is not None
+
+
+def client(s=None):
+    """The torrent client, or (any other client, or none set up) what Radarr/Sonarr's queue says."""
+    c = client_settings()
+    if c is None:
+        return api.ArrQueue(s or seerr())
+    cls, url, user, password = c
+    return cls(url, user, password)
 
 
 def public_settings(s=None):
@@ -204,13 +223,14 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         else:
             actions.append(('In %s - not in Kodi\'s library yet' % where, ('none', None)))
 
-    if status in (api.PROCESSING, api.PARTIAL) and has_qbit():
+    if status in (api.PROCESSING, api.PARTIAL):
         try:
-            rows = active_downloads(s, media_type, tmdb_id)
+            cl = client(s)
+            rows = active_downloads(s, cl, media_type, tmdb_id)
             if episode:  # this episode's download first
                 rows.sort(key=lambda row: (row[1].get('season'), row[1].get('episode')) != (season, episode))
-            for h, q in rows[:4]:
-                actions.append((download_label(q, h), ('download', (h, q))))
+            for h, q, t in rows[:4]:
+                actions.append((download_label(cl, q, t), ('download', (h, q))))
         except api.SeerrError as e:
             log('downloads: %s' % e)
 
@@ -366,7 +386,7 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
 
     notify(scope + ' (can take a minute)')
     rels = busy(arr.releases, **search)
-    if has_qbit():  # watching while it downloads needs a torrent
+    if has_client():  # watching while it downloads needs a torrent
         rels = [r for r in rels if r.get('protocol') == 'torrent']
     if media_type == 'tv':
         rels = [r for r in rels if r.get('seasonNumber') == season]
@@ -381,7 +401,7 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
         except api.SeerrError:
             pass
     try:
-        cap = qbit().rate_limit()
+        cap = client(s).rate_limit()
     except api.SeerrError:
         cap = 0
     n_eps = max(1, len(eps))
@@ -424,8 +444,8 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
             ids = [e['id'] for e in eps if r.get('fullSeason') or e['episodeNumber'] in nums]
             override = {'seriesId': item['id'], 'episodeIds': ids or [e['id'] for e in eps]}
     busy(arr.grab, r, override)
-    notify('Sent to %s: %s' % ('qBittorrent' if has_qbit() else arr.kind.capitalize(), r['title'][:60]))
-    if not has_qbit():
+    notify('Sent to %s: %s' % (client(s).name if has_client() else arr.kind.capitalize(), r['title'][:60]))
+    if not has_client():
         return
     after_grab(arr, r, {'title': title, 'type': media_type, 'tmdb_id': tmdb_id, 'runtime': runtime,
                         'season': season, 'episode': (r.get('episodeNumbers') or [None])[0]})
@@ -452,8 +472,9 @@ def by_episode(ranked, episode=None):
 
 def after_grab(arr, r, q):
     """Find the torrent the grab created (many indexers don't give its hash up front) and offer to watch it."""
+    cl = client()
     pd = xbmcgui.DialogProgress()
-    pd.create(NAME, 'Waiting for qBittorrent to pick it up...')
+    pd.create(NAME, 'Waiting for %s to pick it up...' % cl.name)
     h = None
     try:
         for n in range(24):
@@ -462,8 +483,8 @@ def after_grab(arr, r, q):
             try:
                 h = (arr.grabbed_hash(r['title'])
                      or next((x['hash'] for x in arr.queue() if api.same_release(x.get('release'), r['title'])), None)
-                     or next((t['hash'] for t in qbit().torrents() if api.same_release(t['name'], r['title'])), None))
-                if h and qbit().torrents(h):  # wait until qBittorrent actually has it
+                     or next((t['hash'] for t in cl.torrents() if api.same_release(t['name'], r['title'])), None))
+                if h and cl.torrents(h):  # wait until the client actually has it
                     break
             except api.SeerrError as e:
                 log('after grab: %s' % e)
@@ -478,8 +499,8 @@ def after_grab(arr, r, q):
         return
     q = {k: v for k, v in q.items() if v is not None}
     try:
-        qbit().make_watchable(qbit().torrents(h)[0])
-    except (api.SeerrError, IndexError):
+        cl.make_watchable(cl.torrent(h))
+    except api.SeerrError:
         pass
     if xbmcgui.Dialog().yesno(NAME, 'Downloading in order now.[CR]Watch it while it downloads?', nolabel='Later', yeslabel='Watch'):
         watch_download(h, q)
@@ -487,16 +508,16 @@ def after_grab(arr, r, q):
 
 # ---- watching while it downloads ----
 
-def active_downloads(s, media_type=None, tmdb_id=None):
-    """[(hash, queue entry)] for unfinished torrents, newest first; optionally only one title's."""
-    queue = api.arr_queue(s)
+def active_downloads(s, cl, media_type=None, tmdb_id=None):
+    """[(hash, queue entry, torrent)] for unfinished downloads, newest first; optionally only one title's."""
+    queue = cl.entries() if isinstance(cl, api.ArrQueue) else api.arr_queue(s)
     out = []
-    for t in sorted(qbit().incomplete(), key=lambda t: -t['added_on']):
-        q = queue.get(t['hash'].lower()) or {'title': t['name'], 'type': None, 'tmdb_id': None}
+    for t in sorted(cl.incomplete(), key=lambda t: t['added_on'], reverse=True):
+        q = dict(queue.get(t['hash'].lower()) or {'title': t['name'], 'type': None, 'tmdb_id': None})
         q.setdefault('torrent', t['name'])
         if tmdb_id and (str(q.get('tmdb_id')) != str(tmdb_id) or q.get('type') != media_type):
             continue
-        out.append((t['hash'], q))
+        out.append((t['hash'], q, t))
     return out
 
 
@@ -529,34 +550,40 @@ def runtime_s(q):
 
 def check(qb, h, q, f=None, speed=None):
     """(torrent, file, estimate) right now."""
-    t = qb.torrents(h)
-    if not t:
-        raise api.SeerrError('That download is no longer in qBittorrent')
-    t = t[0]
+    t = qb.torrent(h)
     if f is None:
         f = pick_file(qb.files(h), q, ask=False)
     else:
         f = next((x for x in qb.files(h) if x['index'] == f['index']), f)
     if f is None:
         raise api.SeerrError('No video file in this download')
-    props = qb.properties(h)
-    sp = speed if speed is not None else (t['dlspeed'] or props.get('dl_speed_avg', 0))
-    return t, f, api.estimate(f, qb.pieces(h), props['piece_size'], sp, runtime_s(q))
+    sp = speed if speed is not None else t['dlspeed']
+    return t, f, api.estimate(f, qb.pieces(h), qb.piece_size(h), sp, runtime_s(q))
 
 
 def verdict(e, t):
     if e['ready']:
         return 'Watch now'
-    if t['state'] in ('queuedDL', 'stoppedDL', 'pausedDL'):
-        return 'Queued'
+    if t['state'] in ('queued', 'paused', 'checking'):
+        return t['state'].capitalize()
     if e['wait'] is None:
         return 'Stalled'
     return 'Ready in ~%s' % api.mins(e['wait'])
 
 
-def download_label(q, h):
+def queue_verdict(t):
+    """For downloads only known from Radarr/Sonarr's queue: no idea what's playable, just when it's done."""
+    if t['state'] in ('queued', 'paused'):
+        return t['state'].capitalize()
+    left = api.timeleft_s(t.get('timeleft'))
+    return 'done in ~%s' % api.mins(left) if left else 'Downloading'
+
+
+def download_label(cl, q, t):
+    if not cl.can_stream:
+        return 'Downloading%s: %d%% - %s' % (episode_tag(q), t['progress'] * 100, queue_verdict(t))
     try:
-        t, f, e = check(qbit(), h, q)
+        t, f, e = check(cl, t['hash'], q)
         return 'Downloading%s: %d%% - %s' % (episode_tag(q), t['progress'] * 100, verdict(e, t))
     except api.SeerrError:
         return 'Downloading%s' % episode_tag(q)
@@ -565,7 +592,7 @@ def download_label(q, h):
 def play_path(qb, t, f):
     base = ADDON.getSetting('downloads_path')
     if not base:
-        xbmcgui.Dialog().ok(NAME, 'Kodi can\'t see the downloads folder yet.[CR]Share qBittorrent\'s download folder '
+        xbmcgui.Dialog().ok(NAME, 'Kodi can\'t see the downloads folder yet.[CR]Share %s\'s download folder ' % qb.name +
                                   '(read-only SMB or NFS is fine) and put its address in Seerr Hub settings, '
                                   'e.g. smb://nas/downloads/')
         return None
@@ -598,7 +625,7 @@ def wait_then_play(qb, h, q, f):
         while not pd.iscanceled():
             t, f, e = check(qb, h, q, f, None)
             speed = t['dlspeed'] if speed is None else 0.7 * speed + 0.3 * t['dlspeed']  # smooth the speed
-            e = api.estimate(f, qb.pieces(h), qb.properties(h)['piece_size'], speed, e['runtime'])
+            e = api.estimate(f, qb.pieces(h), qb.piece_size(h), speed, e['runtime'])
             if e['ready']:
                 pd.close()
                 return play(qb, t, f, q)
@@ -613,8 +640,13 @@ def wait_then_play(qb, h, q, f):
 
 def watch_download(h, q):
     try:
-        qb = qbit()
-        t = qb.torrents(h)[0]
+        qb = client()
+        t = qb.torrent(h)
+        if not qb.can_stream:
+            xbmcgui.Dialog().ok(NAME, '%s%s: %d%% - %s.[CR]Watching while it downloads needs qBittorrent, Transmission '
+                                      'or Deluge set up in Seerr Hub settings.' % (
+                                          q.get('title', ''), episode_tag(q), t['progress'] * 100, queue_verdict(t)))
+            return
         changed = qb.make_watchable(t)
         if changed:
             notify('Download set to ' + ' and '.join(changed))
