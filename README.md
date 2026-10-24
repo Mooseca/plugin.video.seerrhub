@@ -18,7 +18,7 @@ Pick a title and it checks your own media server, the streaming services you can
 - **Request in Seerr** if you don't have it, and let your Radarr/Sonarr setup fetch it
 - *(optional)* **Download - choose the release** to pick the exact release yourself, then **start watching while it downloads**
 
-It works as its own add-on, as a **"Watch or request"** item in Kodi's context menu, and as a **player for TMDb Helper**, so it plugs straight into skins like Arctic Fuse.
+It works as its own add-on, as a **"Watch or request"** item in Kodi's context menu, and as a **player for TMDb Helper**, so it plugs straight into skins like Arctic Fuse 3 ([example setup](#example-setup-arctic-fuse-3)).
 
 <p align="center">
   <img src="docs/screenshots/trending.jpg" alt="Trending titles from Seerr in Arctic Fuse 3" width="85%">
@@ -40,6 +40,7 @@ It works as its own add-on, as a **"Watch or request"** item in Kodi's context m
 - [Plex, Jellyfin and Emby](#plex-jellyfin-and-emby)
 - [Downloads: pick a release and watch while it downloads](#downloads-pick-a-release-and-watch-while-it-downloads)
 - [Using it from skins and TMDb Helper](#using-it-from-skins-and-tmdb-helper)
+- [Example setup: Arctic Fuse 3](#example-setup-arctic-fuse-3)
 - [Streaming apps](#streaming-apps)
 - [Troubleshooting](#troubleshooting)
 - [Privacy](#privacy)
@@ -56,7 +57,7 @@ It works as its own add-on, as a **"Watch or request"** item in Kodi's context m
 | ![Search results](docs/screenshots/search.jpg) | ![Main menu](docs/screenshots/menu.jpg) |
 | **Search** shows what you already have (`[In Plex]`, `[Requested]`, `[Downloading]`). | **Main menu:** Search, Trending, My requests, Downloading. |
 
-*Screenshots are from Kodi 21 with the Arctic Fuse 3 skin on a PC. On Android TV the same menu also lists "Open in Netflix" and so on.*
+*Screenshots are from Kodi 21 with the Arctic Fuse 3 skin on a PC. See [Example setup: Arctic Fuse 3](#example-setup-arctic-fuse-3) for how it's configured. On Android TV the same menu also lists "Open in Netflix" and so on.*
 
 ## How it decides what to offer
 
@@ -250,6 +251,44 @@ RunPlugin(plugin://plugin.video.seerrhub/?action=ask)
 | Open the menu for a movie | `plugin://plugin.video.seerrhub/?action=open&type=movie&tmdb_id=122917` |
 | ...for an episode | `plugin://plugin.video.seerrhub/?action=open&type=tv&tmdb_id=1396&season=1&episode=1` |
 | Search with a word already filled in | `plugin://plugin.video.seerrhub/?action=search&query=hobbit` |
+
+## Example setup: Arctic Fuse 3
+
+The screenshots come from **[Arctic Fuse 3](https://github.com/jurialmunkey/skin.arctic.fuse.3)** (with TMDb Helper and skinvariables, which it installs). Here's how Seerr Hub is wired into it, so you can copy the setup.
+
+**1. Every Play button goes through Seerr Hub.** In TMDb Helper's settings, the default player is set to Seerr Hub for both movies and episodes (see [TMDb Helper player](#tmdb-helper-player)). Pressing Play on anything in the skin, whether it's in your library or not, opens the Seerr Hub menu. TMDb Helper's built-in players are turned off, so it doesn't ask which player to use.
+
+**2. A "Search & Request" item in the menus.** In the home, Movies, TV Shows and Discover sub-menus, an item labelled *Search & Request*, with the skin's magnifying-glass icon, runs:
+
+```
+RunPlugin(plugin://plugin.video.seerrhub/?action=ask)
+```
+
+**3. Widgets.** These are set in Arctic Fuse 3's menu and widget editor, using *Poster* style for the title rows:
+
+| Menu | Widgets (in order) |
+|---|---|
+| **Home** | Continue Watching, Next Episodes, **Downloading** *(Seerr Hub)*, New Movies, New Episodes, **Trending** *(Seerr Hub)*, **My Requests** *(Seerr Hub)* |
+| **Movies** | Your library (Continue Watching, Recently Added, Unwatched, ...) + TMDb Helper *Trending This Week* |
+| **TV Shows** | Your library (Next Episodes, New Episodes, ...) + TMDb Helper *Trending This Week* |
+| **Discover** *(an extra menu item)* | **Trending Now** *(Seerr Hub)*, then "Popular on Netflix / Disney+ / Prime Video / ..." rows, **Downloading**, **My Requests** |
+
+The Discover sub-menu also has *Downloading* and *My Requests* as full-screen lists:
+
+```
+ActivateWindow(videos,plugin://plugin.video.seerrhub/?action=downloads,return)
+ActivateWindow(videos,plugin://plugin.video.seerrhub/?action=requests,return)
+```
+
+The "Popular on ..." rows are TMDb Helper's discover lists, filtered to one streaming service in your region. For example, Netflix (TMDb provider 8) in the US:
+
+```
+plugin://plugin.video.themoviedb.helper/?info=discover&tmdb_type=tv&with_watch_providers=8&watch_region=US
+```
+
+Because Play goes through Seerr Hub, picking anything in those rows offers **Open in Netflix** on Android TV. If the title is already in your library, it offers **Play from Plex** instead.
+
+**4. App shortcuts (Android TV).** The home sub-menu also has plain launch items for the streaming apps (`StartAndroidActivity(com.netflix.ninja)` and so on), and one for the Plex app.
 
 ## Streaming apps
 
