@@ -99,7 +99,7 @@ Everything that applies is listed together, best option first. Nothing is ever s
    https://mooseca.github.io/repository.mooseca/
    ```
    then name it `mooseca`.
-3. Go to **Settings → Add-ons → Install from zip file → mooseca** and pick `repository.mooseca-1.0.0.zip`.
+3. Go to **Settings → Add-ons → Install from zip file → mooseca** and pick `repository.mooseca-<version>.zip`.
 4. Go to **Install from repository → Mooseca Repository → Video add-ons → Seerr Hub → Install**.
 5. Open **Add-ons → Video add-ons → Seerr Hub → Configure** (or long-press → Settings).
 
