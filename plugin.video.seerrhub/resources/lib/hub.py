@@ -1,6 +1,8 @@
 # The "what do you want to do with this title" flow, shared by the plugin, the context menu and TMDb Helper.
 import json
+import os
 import re
+import time
 
 import xbmc
 import xbmcaddon
@@ -519,6 +521,57 @@ def active_downloads(s, cl, media_type=None, tmdb_id=None):
             continue
         out.append((t['hash'], q, t))
     return out
+
+
+ART_CACHE = 'special://profile/addon_data/plugin.video.seerrhub/art_cache.json'
+ART_DAYS = 7
+
+
+def title_info(s, q):
+    """Poster, backdrop, plot... of a download's title (and its episode's still), from Seerr.
+    Kept for a week on disk: the Downloading list reloads every 30 seconds while something downloads."""
+    if not q.get('tmdb_id') or q.get('type') not in ('movie', 'tv'):
+        return {}
+    path = xbmcvfs.translatePath(ART_CACHE)
+    try:
+        with open(path) as fh:
+            cache = json.load(fh)
+    except (IOError, ValueError):
+        cache = {}
+    key = '%s:%s' % (q['type'], q['tmdb_id'])
+    keys = [key] + (['%s:s%s' % (key, q['season'])] if q['type'] == 'tv' and q.get('season') is not None else [])
+    now, changed = time.time(), False
+    for k in keys:
+        if now - cache.get(k, {}).get('at', 0) < ART_DAYS * 86400:
+            continue
+        try:
+            if k == key:
+                d = s.details(q['type'], q['tmdb_id'])
+                date = d.get('releaseDate') or d.get('firstAirDate') or ''
+                cache[k] = {'title': d.get('title') or d.get('name'), 'year': date[:4], 'plot': d.get('overview'),
+                            'art': api.art(d), 'genres': [g['name'] for g in d.get('genres') or []],
+                            'rating': d.get('voteAverage'), 'runtime': d.get('runtime') or (d.get('episodeRunTime') or [0])[0]}
+            else:
+                eps = s.season(q['tmdb_id'], q['season']).get('episodes') or []
+                cache[k] = {'episodes': {str(e.get('episodeNumber')): {
+                    'name': e.get('name'), 'plot': e.get('overview'),
+                    'still': api.TMDB_IMG + 'w780' + e['stillPath'] if e.get('stillPath') else None} for e in eps}}
+            cache[k]['at'] = now
+            changed = True
+        except (api.SeerrError, KeyError, TypeError):
+            pass
+    if changed:
+        try:
+            cache = {k: v for k, v in cache.items() if now - v.get('at', 0) < ART_DAYS * 86400}
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w') as fh:
+                json.dump(cache, fh)
+        except (IOError, OSError):
+            pass
+    info = dict(cache.get(key) or {})
+    if len(keys) > 1:
+        info['episode'] = ((cache.get(keys[1]) or {}).get('episodes') or {}).get(str(q.get('episode'))) or {}
+    return info
 
 
 def episode_tag(q):

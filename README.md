@@ -219,7 +219,7 @@ When you start watching a download, Seerr Hub:
 2. works out how much of the file is on disk **from the start, with no gaps**, and how fast it's downloading
 3. offers **Watch now** once the download is safely ahead of playback (20% margin, at least 90 seconds buffered), or **Start by itself when it's safe**, with a live progress window
 
-The **Downloading** list shows every active download with progress and *Watch now* / *Ready in ~12 min* / *Stalled*. Without a torrent client set up it shows Radarr/Sonarr's queue instead: progress and *done in ~25 min*, for any download client including usenet.
+The **Downloading** list shows every active download with progress and *Watch now* / *Ready in ~12 min* / *Stalled*. Without a torrent client set up it shows Radarr/Sonarr's queue instead: progress and *done in ~25 min*, for any download client including usenet. Each download has the title's poster and fanart (the episode's still for TV), its plot, and a progress bar on the artwork, so it looks like the rest of your library on the home screen.
 
 ### Watched status is kept
 

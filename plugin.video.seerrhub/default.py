@@ -63,14 +63,44 @@ def add_downloads(s):
                     q.get('torrent', ''))
             except api.SeerrError as err:
                 line, plot = str(err), q.get('torrent', '')
-        title = q.get('title', '') + hub.episode_tag(q)
-        li = xbmcgui.ListItem('%s  [%s]' % (title, line))
+        info = hub.title_info(s, q)
+        ep = info.get('episode') or {}
+        name = info.get('title') or q.get('title', '')
+        title = name + hub.episode_tag(q)
+        li = xbmcgui.ListItem('%s  [%s]' % (title, line), line)
+        art = dict(info.get('art') or {'icon': 'DefaultAddonsUpdates.png'})
+        if art.get('fanart'):
+            art['landscape'] = art['fanart']
         tag = li.getVideoInfoTag()
-        tag.setTitle(title)
-        tag.setPlot(plot)
+        if q.get('type') == 'tv' and q.get('episode') is not None:
+            tag.setMediaType('episode')
+            tag.setTvShowTitle(name)
+            tag.setSeason(int(q['season']))
+            tag.setEpisode(int(q['episode']))
+            tag.setTitle(ep.get('name') or title)
+            if art.get('poster'):
+                art['tvshow.poster'] = art['poster']
+            if ep.get('still'):  # episode widgets show the still, like the library does
+                art['thumb'] = art['landscape'] = ep['still']
+            about = ep.get('plot') or info.get('plot')
+        else:
+            tag.setMediaType('movie' if q.get('type') == 'movie' else 'tvshow')
+            tag.setTitle(name)
+            about = info.get('plot')
+        li.setArt(art)
+        tag.setPlot('[B]%s[/B][CR]%s%s' % (line, plot, '[CR][CR]' + about if about else ''))
+        if (info.get('year') or '').isdigit():
+            tag.setYear(int(info['year']))
+        if info.get('genres'):
+            tag.setGenres(info['genres'])
+        if info.get('rating'):
+            tag.setRating(float(info['rating']))
+        # skins draw a resume bar on the poster: here it's how far the download has got
+        total = (info.get('runtime') or 100) * 60
+        tag.setResumePoint(max(t['progress'], 0.01) * total, total)
         if q.get('tmdb_id'):
             tag.setUniqueIDs({'tmdb': str(q['tmdb_id'])}, 'tmdb')
-        li.setArt({'icon': 'DefaultAddonsUpdates.png'})
+        li.setProperty('IsPlayable', 'false')
         kw = {k: q[k] for k in ('title', 'type', 'tmdb_id', 'season', 'episode', 'runtime') if q.get(k) is not None}
         xbmcplugin.addDirectoryItem(HANDLE, url(action='dl', hash=h, **kw), li, isFolder=False)
 
