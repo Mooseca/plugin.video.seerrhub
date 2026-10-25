@@ -165,26 +165,20 @@ def launch_app(package, uri):
         xbmc.executebuiltin('StartAndroidActivity("%s")' % package)
 
 
-YOUTUBE_APPS = ('com.google.android.youtube.tv', 'com.google.android.youtube')
-
-
 def trailers(d):
     """YouTube trailers from TMDb (through Seerr), teasers only when there's no trailer."""
     vids = [v for v in d.get('relatedVideos') or [] if v.get('site') == 'YouTube' and v.get('key')]
     return [v for v in vids if v.get('type') == 'Trailer'] or [v for v in vids if v.get('type') == 'Teaser']
 
 
-def play_trailer(vids, apps):
+def play_trailer(vids):
+    """Plays inside Kodi through the YouTube add-on (installed from Kodi's repository the first time)."""
     if len(vids) > 1:
         i = xbmcgui.Dialog().select('Which trailer?', [v.get('name') or 'Trailer' for v in vids])
         if i < 0:
             return
         vids = vids[i:]
     key = vids[0]['key']
-    app = next((p for p in YOUTUBE_APPS if apps and p in apps), None)
-    if app:  # the YouTube app plays it best on Android TV
-        launch_app(app, 'https://www.youtube.com/watch?v=' + key)
-        return
     if not xbmc.getCondVisibility('System.HasAddon(plugin.video.youtube)'):
         xbmc.executebuiltin('InstallAddon(plugin.video.youtube)', True)
         if not xbmc.getCondVisibility('System.HasAddon(plugin.video.youtube)'):
@@ -312,7 +306,7 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
     elif kind == 'download':
         watch_download(*arg)
     elif kind == 'trailer':
-        play_trailer(arg, apps)
+        play_trailer(arg)
     elif kind in ('pick', 'season'):
         try:
             choose_release(s, media_type, tmdb_id, title, d, season, None if kind == 'season' else episode,

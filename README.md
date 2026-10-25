@@ -16,7 +16,7 @@ Pick a title and it checks your own media server, the streaming services you can
 - **Play from Plex / Jellyfin / Emby** if it's already in your library
 - **Open in Netflix / Disney+ / HBO Max / ...** if it's on a streaming service and the app is installed (Android TV)
 - **Request in Seerr** if you don't have it, and let your Radarr/Sonarr setup fetch it
-- **Watch the trailer** in the YouTube app (Android TV) or Kodi's YouTube add-on
+- **Watch the trailer** right in Kodi, through Kodi's YouTube add-on
 - *(optional)* **Download - choose the release** to pick the exact release yourself, then **start watching while it downloads**
 - *(optional)* **Download a whole season** as one season pack, or let Sonarr fetch every episode
 
@@ -90,7 +90,7 @@ Everything that applies is listed together, best option first. Nothing is ever s
 | **Radarr / Sonarr** | Optional | Already connected to Seerr. Lets you pick the release yourself. |
 | **qBittorrent, Transmission or Deluge** | Optional | For watching while it downloads. Any other client (SABnzbd, NZBGet, rTorrent...) still shows up in the Downloading list through Radarr/Sonarr. |
 | **Android TV device** | Optional | Only Android can open other apps. On other systems the "Open in ..." options are just left out. |
-| **YouTube** | Optional | For trailers: the YouTube app on Android TV, otherwise Kodi's YouTube add-on (Seerr Hub offers to install it the first time). |
+| **Kodi's YouTube add-on** | Optional | For trailers. Seerr Hub offers to install it from Kodi's repository the first time. |
 
 ## Install
 
