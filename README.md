@@ -16,7 +16,9 @@ Pick a title and it checks your own media server, the streaming services you can
 - **Play from Plex / Jellyfin / Emby** if it's already in your library
 - **Open in Netflix / Disney+ / HBO Max / ...** if it's on a streaming service and the app is installed (Android TV)
 - **Request in Seerr** if you don't have it, and let your Radarr/Sonarr setup fetch it
+- **Watch the trailer** in the YouTube app (Android TV) or Kodi's YouTube add-on
 - *(optional)* **Download - choose the release** to pick the exact release yourself, then **start watching while it downloads**
+- *(optional)* **Download a whole season** as one season pack, or let Sonarr fetch every episode
 
 It works as its own add-on, as a **"Watch or request"** item in Kodi's context menu, and as a **player for TMDb Helper**, so it plugs straight into skins like Arctic Fuse 3 ([example setup](#example-setup-arctic-fuse-3)).
 
@@ -88,6 +90,7 @@ Everything that applies is listed together, best option first. Nothing is ever s
 | **Radarr / Sonarr** | Optional | Already connected to Seerr. Lets you pick the release yourself. |
 | **qBittorrent, Transmission or Deluge** | Optional | For watching while it downloads. Any other client (SABnzbd, NZBGet, rTorrent...) still shows up in the Downloading list through Radarr/Sonarr. |
 | **Android TV device** | Optional | Only Android can open other apps. On other systems the "Open in ..." options are just left out. |
+| **YouTube** | Optional | For trailers: the YouTube app on Android TV, otherwise Kodi's YouTube add-on (Seerr Hub offers to install it the first time). |
 
 ## Install
 
@@ -208,6 +211,10 @@ Releases are ranked by:
 | Streamable | 5% | Fits under your torrent client's download speed limit, if you set one |
 
 Releases with no seeders are pushed far down, and releases Radarr/Sonarr would reject always sort below the ones they'd accept. For TV, season packs come first, then each episode's releases in order (the episode you asked for at the very top), with the best one for each episode starred. When a torrent client is set up, only torrents are listed, since watching while downloading needs one.
+
+### Download a whole season
+
+For shows, **Download a whole season...** (or **Download all of season 2...** when you started from an episode) lists only season packs, ranked the same way. The top entry, **Let Sonarr choose**, marks every episode of the season as monitored and starts Sonarr's own season search: it grabs a pack if one passes your profile, otherwise the best release for each episode. If there are no packs at all, it offers that search straight away.
 
 Once you pick a release, it goes to Radarr/Sonarr, so they import and rename it as usual. If the title isn't in Radarr/Sonarr yet, it's added first, without an automatic search. With a torrent client set up, Seerr Hub then waits for the torrent to appear and offers to watch it.
 

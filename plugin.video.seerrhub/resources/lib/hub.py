@@ -165,6 +165,33 @@ def launch_app(package, uri):
         xbmc.executebuiltin('StartAndroidActivity("%s")' % package)
 
 
+YOUTUBE_APPS = ('com.google.android.youtube.tv', 'com.google.android.youtube')
+
+
+def trailers(d):
+    """YouTube trailers from TMDb (through Seerr), teasers only when there's no trailer."""
+    vids = [v for v in d.get('relatedVideos') or [] if v.get('site') == 'YouTube' and v.get('key')]
+    return [v for v in vids if v.get('type') == 'Trailer'] or [v for v in vids if v.get('type') == 'Teaser']
+
+
+def play_trailer(vids, apps):
+    if len(vids) > 1:
+        i = xbmcgui.Dialog().select('Which trailer?', [v.get('name') or 'Trailer' for v in vids])
+        if i < 0:
+            return
+        vids = vids[i:]
+    key = vids[0]['key']
+    app = next((p for p in YOUTUBE_APPS if apps and p in apps), None)
+    if app:  # the YouTube app plays it best on Android TV
+        launch_app(app, 'https://www.youtube.com/watch?v=' + key)
+        return
+    if not xbmc.getCondVisibility('System.HasAddon(plugin.video.youtube)'):
+        xbmc.executebuiltin('InstallAddon(plugin.video.youtube)', True)
+        if not xbmc.getCondVisibility('System.HasAddon(plugin.video.youtube)'):
+            return
+    xbmc.executebuiltin('PlayMedia(plugin://plugin.video.youtube/play/?video_id=%s)' % key)
+
+
 def request(s, media_type, tmdb_id, title, details):
     if media_type == 'movie':
         if not xbmcgui.Dialog().yesno(NAME, 'Request "%s" in Seerr?' % title):
@@ -246,10 +273,16 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         if openable(package):
             actions.append(('Open in %s' % name, ('app', (package, uri))))
 
+    vids = trailers(d)
+    if vids:
+        actions.append(('Watch the trailer', ('trailer', vids)))
+
     if status in (api.PENDING, api.PROCESSING):
         actions.append(('%s in Seerr (already requested)' % api.STATUS_LABEL[status], ('none', None)))
     if status != api.AVAILABLE or media_type == 'tv':
         actions.append(('Download%s - choose the release...' % ep_tag, ('pick', None)))
+    if media_type == 'tv':
+        actions.append(('Download all of season %d...' % season if season else 'Download a whole season...', ('season', None)))
     if (media_type == 'tv' and status != api.AVAILABLE) or (media_type == 'movie' and status == api.UNKNOWN):
         actions.append(('Request in Seerr (it picks the release)' if status == api.UNKNOWN else 'Request more seasons in Seerr',
                         ('request', None)))
@@ -278,9 +311,12 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         launch_app(*arg)
     elif kind == 'download':
         watch_download(*arg)
-    elif kind == 'pick':
+    elif kind == 'trailer':
+        play_trailer(arg, apps)
+    elif kind in ('pick', 'season'):
         try:
-            choose_release(s, media_type, tmdb_id, title, d, season, episode)
+            choose_release(s, media_type, tmdb_id, title, d, season, None if kind == 'season' else episode,
+                           whole=kind == 'season')
         except api.SeerrError as e:
             xbmcgui.Dialog().ok(NAME, str(e))
     elif kind == 'request':
@@ -358,10 +394,10 @@ def release_summary(arr, r):
     return '[CR]'.join(lines)
 
 
-def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
+def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, whole=False):
     """Search every indexer through Radarr/Sonarr, rank the results against the quality profile, size settings,
     seeders and the download cap, and grab the one picked. Adds the title to Radarr/Sonarr first if needed,
-    without letting it search by itself."""
+    without letting it search by itself. whole: a whole season, as a pack or Sonarr's own pick per episode."""
     if media_type == 'movie':
         arr, season = busy(api.arr_server, s, 'radarr'), None
         item = busy(arr.movie, tmdb_id)
@@ -384,6 +420,8 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
         runtime = (d.get('episodeRunTime') or [None])[0] or item.get('runtime') or 45
         eps = busy(arr.episodes, item['id'], season)
         scope = 'Searching for %s season %d%s...' % (title, season, ' (episode %d first)' % episode if episode else '')
+        if whole:
+            scope = 'Searching for season packs of %s season %d...' % (title, season)
         search = {'seriesId': item['id'], 'seasonNumber': season}
 
     notify(scope + ' (can take a minute)')
@@ -391,7 +429,12 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
     if has_client():  # watching while it downloads needs a torrent
         rels = [r for r in rels if r.get('protocol') == 'torrent']
     if media_type == 'tv':
-        rels = [r for r in rels if r.get('seasonNumber') == season]
+        rels = [r for r in rels if r.get('seasonNumber') == season and (r.get('fullSeason') or not whole)]
+    if not rels and whole:
+        if xbmcgui.Dialog().yesno(NAME, 'No season packs found for %s season %d.[CR][CR]Let Sonarr search for each '
+                                  'episode by itself instead?' % (title, season)):
+            sonarr_season(arr, item, eps, title, season)
+        return
     if not rels:
         xbmcgui.Dialog().ok(NAME, 'No releases found for %s%s.' % (title, ' season %d' % season if season else ''))
         return
@@ -421,7 +464,7 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
     ranked = ranked[:100]
 
     def what(r):
-        if media_type == 'movie':
+        if media_type == 'movie' or whole:
             return ''
         if r.get('fullSeason'):
             return 'Pack'
@@ -430,11 +473,17 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
     heading = '%s: %d releases' % (title + (' S%02d' % season if season else ''), len(ranked))
     best = ('best for each episode' if media_type == 'tv' and len(stars) > 1 else 'best pick')
     heading += (' (* %s, x outside profile)' if not any(r['ok'] for r in ranked) else ' (* = %s)') % best
+    auto = ['[B]Let Sonarr choose[/B] - a pack or single episodes'] if whole else []
+    if whole:
+        heading = '%s S%02d: %d season packs%s' % (title, season, len(ranked), heading[heading.index(' ('):])
     while True:
-        i = xbmcgui.Dialog().select(heading, [release_label(r, n in stars, what(r)) for n, r in enumerate(ranked)])
+        i = xbmcgui.Dialog().select(heading, auto + [release_label(r, n in stars, what(r)) for n, r in enumerate(ranked)])
         if i < 0:
             return
-        r = ranked[i]
+        if i < len(auto):
+            sonarr_season(arr, item, eps, title, season)
+            return
+        r = ranked[i - len(auto)]
         if xbmcgui.Dialog().yesno(NAME, release_summary(arr, r), nolabel='Back', yeslabel='Download'):
             break
     override = None
@@ -451,6 +500,15 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None):
         return
     after_grab(arr, r, {'title': title, 'type': media_type, 'tmdb_id': tmdb_id, 'runtime': runtime,
                         'season': season, 'episode': (r.get('episodeNumbers') or [None])[0]})
+
+
+def sonarr_season(arr, item, eps, title, season):
+    """Monitor every episode of the season (Sonarr only searches monitored ones) and start its season search."""
+    ids = [e['id'] for e in eps if not e.get('monitored')]
+    if ids:
+        busy(arr.monitor_episodes, ids)
+    busy(arr.season_search, item['id'], season)
+    notify('Sonarr is searching for %s season %d: it shows in Downloading once grabbed' % (title, season))
 
 
 def by_episode(ranked, episode=None):

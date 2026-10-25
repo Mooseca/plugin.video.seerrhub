@@ -671,6 +671,13 @@ class Arr(object):
         """Interactive search across every indexer: slow (tens of seconds)."""
         return self._call('/release', params, timeout=180) or []
 
+    def monitor_episodes(self, ids):
+        return self._call('/episode/monitor', body={'episodeIds': ids, 'monitored': True}, method='PUT')
+
+    def season_search(self, series_id, season):
+        """Let Sonarr find the season by itself: a pack, or the best release for each monitored episode."""
+        return self._call('/command', body={'name': 'SeasonSearch', 'seriesId': series_id, 'seasonNumber': season})
+
     def grab(self, rel, override=None):
         body = {'guid': rel['guid'], 'indexerId': rel['indexerId']}
         if override:  # the release didn't map to the title by itself: tell it which one it is
