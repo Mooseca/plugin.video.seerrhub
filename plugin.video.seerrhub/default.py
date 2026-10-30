@@ -95,9 +95,7 @@ def add_downloads(s):
             tag.setGenres(info['genres'])
         if info.get('rating'):
             tag.setRating(float(info['rating']))
-        # skins draw a resume bar on the poster: here it's how far the download has got
-        total = (info.get('runtime') or 100) * 60
-        tag.setResumePoint(max(t['progress'], 0.01) * total, total)
+        # no resume point for a progress bar: Kodi then asks "Resume from ... / Play from beginning" on OK
         if q.get('tmdb_id'):
             tag.setUniqueIDs({'tmdb': str(q['tmdb_id'])}, 'tmdb')
         li.setProperty('IsPlayable', 'false')
