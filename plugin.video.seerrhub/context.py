@@ -16,7 +16,7 @@ def main():
         episode = tag.getEpisode() if dbtype == 'episode' and tag.getEpisode() > 0 else None
         if tmdb_id:
             return hub.open_title('tv', tmdb_id, title, season, episode)
-        return hub.open_by_title('tv', title)
+        return hub.open_by_title('tv', title, season=season, episode=episode)
     tmdb_id = tag.getUniqueID('tmdb') or li.getProperty('tmdb_id')
     if tmdb_id:
         return hub.open_title(dbtype, tmdb_id, tag.getTitle())

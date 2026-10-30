@@ -71,8 +71,8 @@ class Seerr(object):
     def season(self, tmdb_id, season):
         return self._call('/tv/%s/season/%s' % (tmdb_id, season))
 
-    def requests(self, take=20):
-        return self._call('/request', {'take': take, 'skip': 0, 'filter': 'all', 'sort': 'added'})
+    def requests(self, take=20, skip=0):
+        return self._call('/request', {'take': take, 'skip': skip, 'filter': 'all', 'sort': 'added'})
 
     def public(self):
         """Seerr's public settings: mediaServerType (1 Plex, 2 Jellyfin, 3 Emby), streamingRegion..."""
@@ -772,6 +772,20 @@ def mbps(bytes_per_s):
 
 # MB per minute of video (min, preferred, max) when neither Sonarr nor Radarr has a size set for that resolution
 DEFAULT_SIZES = {480: (3, 8, 25), 576: (3, 8, 25), 720: (8, 17, 60), 1080: (15, 40, 140), 2160: (60, 200, 400)}
+# Radarr/Sonarr couldn't tie these to the title at all: other titles a loose indexer search brought back
+UNMATCHED = re.compile(r'unknown (movie|series)|unable to (parse|match)', re.I)
+# reasons that only mean "a copy is already on its way or on disk": still a fine pick if you want this one
+SOFT = re.compile(r'(in queue|existing file).*(cutoff|upgrade)|not an upgrade', re.I)
+
+
+def wrong_title(r, title):
+    """Release Radarr/Sonarr couldn't match, whose name doesn't carry every word of the title either."""
+    if not any(UNMATCHED.search(j) for j in r.get('rejections') or []):
+        return False
+    have = set(re.findall(r'[a-z0-9]+', (r.get('title') or '').lower()))
+    return not all(w in have for w in re.findall(r'[a-z0-9]+', title.lower()))
+
+
 WEIGHTS = {'quality': 0.30, 'format': 0.15, 'size': 0.20, 'seeds': 0.30, 'stream': 0.05}
 GOOD_SEEDS = 200  # this many seeders counts as full marks
 
@@ -828,7 +842,7 @@ def score_releases(releases, ref, minutes, rate_limit=0):
             'stream': 1.0 if not rate_limit or bitrate * SAFETY <= rate_limit else 0.0,
         }
         r['score'] = sum(WEIGHTS[k] * v for k, v in parts.items()) * (0.2 if not r.get('seeders') else 1)
-        r['ok'] = bool(r.get('approved'))
+        r['ok'] = bool(r.get('approved')) or bool(r.get('rejections')) and all(SOFT.search(j) for j in r['rejections'])
         if FAKE_NAME.search(r.get('title') or ''):
             r['ok'], r['score'] = False, 0
             r['rejections'] = ['looks like a fake (a program, not a video)'] + list(r.get('rejections') or [])

@@ -171,11 +171,22 @@ def main():
                 li.setArt({'icon': 'DefaultIconInfo.png'})
                 xbmcplugin.addDirectoryItem(HANDLE, '', li, isFolder=False)
         elif action == 'trending':
-            add_titles(s.trending().get('results', []))
+            page = int(ARGS.get('page') or 1)
+            res = s.trending(page)
+            add_titles(res.get('results', []))
+            if page < min(res.get('totalPages') or 1, 10):
+                li = xbmcgui.ListItem('More (page %d)' % (page + 1))
+                li.setArt({'icon': 'DefaultFolder.png'})
+                xbmcplugin.addDirectoryItem(HANDLE, url(action='trending', page=page + 1), li, isFolder=True)
         elif action == 'requests':
-            items = []
-            for r in s.requests(20).get('results', []):
+            page = int(ARGS.get('page') or 1)
+            res = s.requests(20, (page - 1) * 20)
+            items, seen = [], set()
+            for r in res.get('results', []):
                 m = r.get('media') or {}
+                if (m.get('mediaType'), m.get('tmdbId')) in seen:  # a show asked for again (more seasons)
+                    continue
+                seen.add((m.get('mediaType'), m.get('tmdbId')))
                 try:
                     d = s.details(m.get('mediaType'), m.get('tmdbId'))
                 except api.SeerrError:
@@ -183,6 +194,11 @@ def main():
                 d['mediaType'] = m.get('mediaType')
                 items.append(d)
             add_titles(items)
+            pages = (res.get('pageInfo') or {}).get('pages') or 1
+            if page < pages:
+                li = xbmcgui.ListItem('Next page (%d of %d)' % (page + 1, pages))
+                li.setArt({'icon': 'DefaultFolder.png'})
+                xbmcplugin.addDirectoryItem(HANDLE, url(action='requests', page=page + 1), li, isFolder=True)
         elif action == 'downloads':
             add_downloads(s)
     except api.SeerrError as e:

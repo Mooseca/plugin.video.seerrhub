@@ -190,19 +190,24 @@ def play_trailer(vids):
     xbmc.executebuiltin('PlayMedia(plugin://plugin.video.youtube/play/?video_id=%s)' % key)
 
 
+def season_states(details):
+    """({season number: status} for seasons we have or asked for, the show's seasons leaving out specials)."""
+    have = {x['seasonNumber']: api.status(x) for x in (details.get('mediaInfo') or {}).get('seasons', [])}
+    for r in (details.get('mediaInfo') or {}).get('requests', []):
+        if r.get('status') in (3, 4):  # declined or failed: those seasons can be asked for again
+            continue
+        for x in r.get('seasons', []):
+            have.setdefault(x['seasonNumber'], api.PENDING if r.get('status') == 1 else api.PROCESSING)  # 1: not approved yet
+    return have, [x for x in details.get('seasons', []) if x['seasonNumber'] > 0]
+
+
 def request(s, media_type, tmdb_id, title, details):
     if media_type == 'movie':
         if not xbmcgui.Dialog().yesno(NAME, 'Request "%s" in Seerr?' % title):
             return
         s.request('movie', tmdb_id)
     else:
-        have = {x['seasonNumber']: api.status(x) for x in (details.get('mediaInfo') or {}).get('seasons', [])}
-        for r in (details.get('mediaInfo') or {}).get('requests', []):
-            if r.get('status') in (3, 4):  # declined or failed: those seasons can be asked for again
-                continue
-            for x in r.get('seasons', []):
-                have.setdefault(x['seasonNumber'], api.PENDING if r.get('status') == 1 else api.PROCESSING)  # 1: not approved yet
-        seasons = [x for x in details.get('seasons', []) if x['seasonNumber'] > 0]
+        have, seasons = season_states(details)
         free = lambda x: have.get(x['seasonNumber'], api.UNKNOWN) == api.UNKNOWN
         if not any(free(x) for x in seasons):
             notify('Every season is already available or requested')
@@ -293,8 +298,12 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         actions.append(('Download%s - choose the release...' % ep_tag, ('pick', None)))
     if media_type == 'tv':
         actions.append(('Download all of season %d...' % season if season else 'Download a whole season...', ('season', None)))
-    if (media_type == 'tv' and status != api.AVAILABLE) or (media_type == 'movie' and status == api.UNKNOWN
-                                                             and not downloading):
+    if media_type == 'tv':
+        have, seasons = season_states(d)
+        can_request = any(have.get(x['seasonNumber'], api.UNKNOWN) == api.UNKNOWN for x in seasons)
+    else:
+        can_request = status == api.UNKNOWN and not downloading
+    if can_request:
         actions.append(('Request in Seerr (it picks the release)' if status == api.UNKNOWN else 'Request more seasons in Seerr',
                         ('request', None)))
 
@@ -307,10 +316,13 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         return
     if not offers and status == api.UNKNOWN:
         heading += ' - not streaming in %s' % region(s)
-    choice = xbmcgui.Dialog().select(heading, [a[0] for a in actions])
-    if choice < 0:
-        return
-    kind, arg = actions[choice][1]
+    while True:
+        choice = xbmcgui.Dialog().select(heading, [a[0] for a in actions])
+        if choice < 0:
+            return
+        kind, arg = actions[choice][1]
+        if kind != 'none':  # lines that only tell you something keep the menu open
+            break
     if kind == 'library_ep':
         rpc('Player.Open', {'item': {'episodeid': arg}})
     elif kind == 'library':
@@ -337,7 +349,7 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
             xbmcgui.Dialog().ok(NAME, str(e))
 
 
-def open_by_title(media_type, title, year=None):
+def open_by_title(media_type, title, year=None, season=None, episode=None):
     """For items without a TMDb id: look the title up in Seerr first."""
     want = 'tv' if media_type in ('tv', 'tvshow', 'season', 'episode') else 'movie'
     try:
@@ -352,7 +364,7 @@ def open_by_title(media_type, title, year=None):
     if not results:
         notify('"%s" not found in Seerr' % title)
         return
-    open_title(want, results[0]['id'], title)
+    open_title(want, results[0]['id'], title, season, episode)
 
 
 # ---- choosing the release yourself ----
@@ -402,7 +414,12 @@ def release_summary(arr, r):
         lines.append('Formats: %s (+%d)' % (', '.join(f['name'] for f in r['customFormats']), r.get('customFormatScore') or 0))
     if not r['ok']:
         lines.append('[COLOR orange]%s won\'t take it by itself: %s[/COLOR]' % (arr.kind.capitalize(), '; '.join(r['rejections'][:2])))
+    elif r.get('rejections'):  # only "you already have / are getting a copy"
+        lines.append('[COLOR grey]Note: %s[/COLOR]' % '; '.join(r['rejections'][:2]))
     return '[CR]'.join(lines)
+
+
+NOT_AIRED = re.compile(r"haven't aired", re.I)
 
 
 def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, whole=False):
@@ -440,7 +457,13 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, 
     if has_client():  # watching while it downloads needs a torrent
         rels = [r for r in rels if r.get('protocol') == 'torrent']
     if media_type == 'tv':
-        rels = [r for r in rels if r.get('seasonNumber') == season and (r.get('fullSeason') or not whole)]
+        # multi-season packs: Sonarr won't import them; "full season" packs of a season still airing are fakes
+        rels = [r for r in rels if r.get('seasonNumber') == season and (r.get('fullSeason') or not whole)
+                and len(r.get('seasonNumbers') or [season]) == 1
+                and not any(NOT_AIRED.search(j) for j in r.get('rejections') or [])]
+    # other titles a loose search brought back, fakes, and releases you already threw out
+    rels = [r for r in rels if not api.wrong_title(r, title) and not api.FAKE_NAME.search(r.get('title') or '')
+            and not any('blocklisted' in j.lower() for j in r.get('rejections') or [])]
     if not rels and whole:
         if xbmcgui.Dialog().yesno(NAME, 'No season packs found for %s season %d.[CR][CR]Let Sonarr search for each '
                                   'episode by itself instead?' % (title, season)):
@@ -449,6 +472,11 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, 
     if not rels:
         xbmcgui.Dialog().ok(NAME, 'No releases found for %s%s.' % (title, ' season %d' % season if season else ''))
         return
+    if episode and not any(episode in (r.get('episodeNumbers') or []) or r.get('fullSeason') for r in rels):
+        air = next((e.get('airDate') for e in eps if e.get('episodeNumber') == episode), None)
+        notify('Nothing for E%02d yet%s - showing the rest of the season'
+               % (episode, ' (airs %s)' % time.strftime('%d %b', time.strptime(air, '%Y-%m-%d')).lstrip('0')
+                  if air and air > time.strftime('%Y-%m-%d') else ''))
     limits = busy(arr.size_limits, item.get('qualityProfileId'))
     fallback = {}
     if not any(v[1] for v in limits.values()):  # no sizes set: borrow the other server's per-resolution ones
@@ -778,8 +806,11 @@ def watch_download(h, q):
         changed = qb.make_watchable(t)
         if changed:
             notify('Download set to ' + ' and '.join(changed))
-        f = pick_file(qb.files(h), q)
-        if f is None:
+        files = qb.files(h)
+        if not api.video_files(files):
+            check(qb, h, q)  # says why: still getting the file list, a fake, no video
+        f = pick_file(files, q)
+        if f is None:  # backed out of "Which file?"
             return
         while True:
             t, f, e = check(qb, h, q, f)
