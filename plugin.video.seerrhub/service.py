@@ -33,6 +33,11 @@ class Tracker(xbmc.Player):
         if info and playing.rstrip('/').split('/')[-1] == info['path'].rstrip('/').split('/')[-1]:
             self.q, self.pos, self.total = info['q'], 0, hub.runtime_s(info['q'])
             hub.log('sync: tracking %s' % playing)
+            if info.get('lang'):
+                try:
+                    hub.pick_streams(info['lang'])
+                except Exception as e:
+                    hub.log('streams: %s' % e)
 
     def tick(self):
         if not self.q:

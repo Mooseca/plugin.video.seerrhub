@@ -802,6 +802,39 @@ def play_path(qb, t, f):
     return base.rstrip('/') + rel + '/' + f['name']
 
 
+def original_language(q):
+    """The title's original language as ISO 639-2 ('eng'), the way Kodi names stream languages."""
+    try:
+        code = seerr().details(q['type'], q['tmdb_id']).get('originalLanguage') or ''
+    except Exception as e:  # not worth holding up playback for
+        log('original language: %s' % e)
+        return ''
+    return xbmc.convertLanguage(code, xbmc.ISO_639_2) if code else ''
+
+
+def pick_streams(lang):
+    """Switch to the audio in lang if it isn't playing already, and drop forced subtitles of another language.
+    Nothing happens when the file has no audio in lang."""
+    p = rpc('Player.GetProperties', {'playerid': 1, 'properties': ['audiostreams', 'currentaudiostream',
+                                                                    'subtitles', 'currentsubtitle', 'subtitleenabled']})
+    same = lambda x: (x.get('language') or '').lower() == lang
+    audio = [a for a in p.get('audiostreams') or [] if same(a)]
+    if not audio:
+        return
+    if not same(p.get('currentaudiostream') or {}):
+        best = max(audio, key=lambda a: (a.get('isdefault', False), not a.get('isimpaired', False), a.get('channels', 0)))
+        rpc('Player.SetAudioStream', {'playerid': 1, 'stream': best['index']})
+        log('audio: %s' % (best.get('name') or lang))
+    sub = p.get('currentsubtitle') or {}
+    if p.get('subtitleenabled') and sub.get('isforced') and not same(sub):
+        forced = [x for x in p.get('subtitles') or [] if x.get('isforced') and same(x)]
+        if forced:
+            rpc('Player.SetSubtitle', {'playerid': 1, 'subtitle': forced[0]['index'], 'enable': True})
+        else:
+            rpc('Player.SetSubtitle', {'playerid': 1, 'subtitle': 'off'})
+        log('subtitles: %s' % ('forced ' + lang if forced else 'off'))
+
+
 def play(qb, t, f, q):
     path = play_path(qb, t, f)
     if not path:
@@ -812,8 +845,9 @@ def play(qb, t, f, q):
         q['season'], q['episode'] = int(m.group(1)), int(m.group(2))
     li = xbmcgui.ListItem(q.get('title', '') + episode_tag(q), path=path)
     log('play %s' % path)
-    # the service picks this up and later copies watched / resume point to the media server
-    xbmcgui.Window(10000).setProperty(PLAYING_PROP, json.dumps({'path': path, 'q': q}))
+    # the service picks this up: it sets the audio to the title's own language (dubbed releases often default
+    # to the dub) and later copies watched / resume point to the media server
+    xbmcgui.Window(10000).setProperty(PLAYING_PROP, json.dumps({'path': path, 'q': q, 'lang': original_language(q)}))
     xbmc.Player().play(path, li)
 
 
