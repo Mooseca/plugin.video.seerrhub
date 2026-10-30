@@ -180,14 +180,15 @@ def play_trailer(vids):
     if len(vids) > 1:
         i = xbmcgui.Dialog().select('Which trailer?', [v.get('name') or 'Trailer' for v in vids])
         if i < 0:
-            return
+            return False
         vids = vids[i:]
     key = vids[0]['key']
     if not xbmc.getCondVisibility('System.HasAddon(plugin.video.youtube)'):
         xbmc.executebuiltin('InstallAddon(plugin.video.youtube)', True)
         if not xbmc.getCondVisibility('System.HasAddon(plugin.video.youtube)'):
-            return
+            return False
     xbmc.executebuiltin('PlayMedia(plugin://plugin.video.youtube/play/?video_id=%s)' % key)
+    return True
 
 
 def season_states(details):
@@ -201,32 +202,57 @@ def season_states(details):
     return have, [x for x in details.get('seasons', []) if x['seasonNumber'] > 0]
 
 
+def season_span(nums):
+    """[1, 2, 3, 5] -> 'S1-S3, S5'."""
+    out, nums = [], sorted(nums)
+    for n in nums:
+        if out and n == out[-1][1] + 1:
+            out[-1][1] = n
+        else:
+            out.append([n, n])
+    return ', '.join('S%d' % a if a == b else 'S%d-S%d' % (a, b) for a, b in out)
+
+
 def request(s, media_type, tmdb_id, title, details):
+    """True once a request was sent; False when backed out (the title menu shows again)."""
     if media_type == 'movie':
-        if not xbmcgui.Dialog().yesno(NAME, 'Request "%s" in Seerr?' % title):
-            return
+        if not xbmcgui.Dialog().yesno(NAME, 'Request "%s" in Seerr?' % title, nolabel='Back', yeslabel='Request'):
+            return False
         s.request('movie', tmdb_id)
     else:
         have, seasons = season_states(details)
-        free = lambda x: have.get(x['seasonNumber'], api.UNKNOWN) == api.UNKNOWN
-        if not any(free(x) for x in seasons):
+        free = [x for x in seasons if have.get(x['seasonNumber'], api.UNKNOWN) == api.UNKNOWN]
+        if not free:
             notify('Every season is already available or requested')
-            return
-        # every season is listed (leaving out the ones we have made the show look shorter than it is);
-        # the ones we have are labelled, and only ticked by default when we have none of the show yet
-        labels = ['Season %d  (%d episodes)%s' % (x['seasonNumber'], x.get('episodeCount') or 0,
-                                                 '' if free(x) else ' - %s' % status_label(have[x['seasonNumber']], s))
-                  for x in seasons]
-        fresh = all(free(x) for x in seasons)
-        picked = xbmcgui.Dialog().multiselect('Request which seasons of %s?' % title, labels,
-                                              preselect=list(range(len(seasons))) if fresh else [])
-        wanted = [seasons[i]['seasonNumber'] for i in picked or [] if free(seasons[i])]
-        if not wanted:
-            if picked:
-                notify('Those seasons are already available or requested')
-            return
+            return False
+        # a plain list for the remote: everything missing first, then one season, then a tick list for a few
+        nums = [x['seasonNumber'] for x in free]
+        opts = []
+        if len(free) > 1:
+            opts.append(('[B]All missing seasons[/B]  (%s)' % season_span(nums), nums))
+        opts += [('Season %d  (%d episodes)' % (x['seasonNumber'], x.get('episodeCount') or 0), [x['seasonNumber']])
+                 for x in free]
+        if len(free) > 2:
+            opts.append(('Choose several...', None))
+        heading = 'Request which seasons of %s?' % title
+        if len(free) < len(seasons):
+            heading += ' (%s already in or asked for)' % season_span(set(x['seasonNumber'] for x in seasons) - set(nums))
+        while True:
+            i = xbmcgui.Dialog().select(heading, [o[0] for o in opts])
+            if i < 0:
+                return False
+            wanted = opts[i][1]
+            if wanted is None:
+                picked = xbmcgui.Dialog().multiselect(heading, [o[0] for o in opts[1:-1]])
+                wanted = [nums[j] for j in picked or []]
+                if not wanted:
+                    continue
+            if xbmcgui.Dialog().yesno(NAME, 'Request %s %s in Seerr?' % (title, season_span(wanted)),
+                                      nolabel='Back', yeslabel='Request'):
+                break
         s.request('tv', tmdb_id, wanted)
     notify('Requested %s' % title)
+    return True
 
 
 def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
@@ -316,13 +342,21 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         return
     if not offers and status == api.UNKNOWN:
         heading += ' - not streaming in %s' % region(s)
+    # Back in anything opened from here comes back to this menu; Back here leaves
+    choice = 0
     while True:
-        choice = xbmcgui.Dialog().select(heading, [a[0] for a in actions])
+        choice = xbmcgui.Dialog().select(heading, [a[0] for a in actions], preselect=choice)
         if choice < 0:
             return
         kind, arg = actions[choice][1]
-        if kind != 'none':  # lines that only tell you something keep the menu open
-            break
+        if kind == 'none':  # lines that only tell you something keep the menu open
+            continue
+        if do_action(kind, arg, s, media_type, tmdb_id, title, d, season, episode):
+            return
+
+
+def do_action(kind, arg, s, media_type, tmdb_id, title, d, season, episode):
+    """True when something was started; False when backed out or nothing came of it."""
     if kind == 'library_ep':
         rpc('Player.Open', {'item': {'episodeid': arg}})
     elif kind == 'library':
@@ -333,20 +367,19 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
     elif kind == 'app':
         launch_app(*arg)
     elif kind == 'download':
-        watch_download(*arg)
+        return watch_download(*arg)
     elif kind == 'trailer':
-        play_trailer(arg)
-    elif kind in ('pick', 'season'):
+        return play_trailer(arg)
+    elif kind in ('pick', 'season', 'request'):
         try:
-            choose_release(s, media_type, tmdb_id, title, d, season, None if kind == 'season' else episode,
-                           whole=kind == 'season')
+            if kind == 'request':
+                return request(s, media_type, tmdb_id, title, d)
+            return choose_release(s, media_type, tmdb_id, title, d, season, None if kind == 'season' else episode,
+                                  whole=kind == 'season')
         except api.SeerrError as e:
             xbmcgui.Dialog().ok(NAME, str(e))
-    elif kind == 'request':
-        try:
-            request(s, media_type, tmdb_id, title, d)
-        except api.SeerrError as e:
-            xbmcgui.Dialog().ok(NAME, str(e))
+            return False
+    return True
 
 
 def open_by_title(media_type, title, year=None, season=None, episode=None):
@@ -380,7 +413,7 @@ def busy(fn, *a, **kw):
         xbmc.executebuiltin('Dialog.Close(busydialognocancel)')
 
 
-def pick_season(title, d):
+def pick_season(title, d, last=None):
     seasons = [x for x in d.get('seasons', []) if x['seasonNumber'] > 0]
     if not seasons:
         raise api.SeerrError('No seasons listed for %s' % title)
@@ -388,8 +421,10 @@ def pick_season(title, d):
     labels = ['Season %d  (%d episodes)%s' % (x['seasonNumber'], x.get('episodeCount') or 0,
                                               ' - %s' % status_label(have[x['seasonNumber']])
                                               if have.get(x['seasonNumber']) in api.STATUS_LABEL else '') for x in seasons]
-    first_missing = next((i for i, x in enumerate(seasons) if have.get(x['seasonNumber']) != api.AVAILABLE), 0)
-    i = xbmcgui.Dialog().select('Download which season of %s?' % title, labels, preselect=first_missing)
+    at = next((i for i, x in enumerate(seasons) if x['seasonNumber'] == last), None)
+    if at is None:  # first time: the first season we don't have
+        at = next((i for i, x in enumerate(seasons) if have.get(x['seasonNumber']) != api.AVAILABLE), 0)
+    i = xbmcgui.Dialog().select('Download which season of %s?' % title, labels, preselect=at)
     return seasons[i] if i >= 0 else None
 
 
@@ -423,6 +458,21 @@ NOT_AIRED = re.compile(r"haven't aired", re.I)
 
 
 def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, whole=False):
+    """Pick the season first when it isn't known; Back from the releases comes back to the seasons.
+    True once something was grabbed or Sonarr was set searching."""
+    if media_type == 'movie' or season:
+        return release_list(s, media_type, tmdb_id, title, d, season, episode, whole)
+    last = None
+    while True:
+        picked = pick_season(title, d, last)
+        if picked is None:
+            return False
+        last = picked['seasonNumber']
+        if release_list(s, media_type, tmdb_id, title, d, last, None, whole):
+            return True
+
+
+def release_list(s, media_type, tmdb_id, title, d, season=None, episode=None, whole=False):
     """Search every indexer through Radarr/Sonarr, rank the results against the quality profile, size settings,
     seeders and the download cap, and grab the one picked. Adds the title to Radarr/Sonarr first if needed,
     without letting it search by itself. whole: a whole season, as a pack or Sonarr's own pick per episode."""
@@ -437,11 +487,6 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, 
         tvdb = (d.get('externalIds') or {}).get('tvdbId')
         if not tvdb:
             raise api.SeerrError('%s has no TheTVDB id, so Sonarr can\'t add it' % title)
-        if not season:  # not started from an episode: ask
-            picked = pick_season(title, d)
-            if picked is None:
-                return
-            season = picked['seasonNumber']
         anime = any(k.get('id') == ANIME_KEYWORD for k in d.get('keywords') or [])
         arr = busy(api.arr_server, s, 'sonarr')
         item = busy(arr.series, tvdb, season, anime)
@@ -468,10 +513,11 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, 
         if xbmcgui.Dialog().yesno(NAME, 'No season packs found for %s season %d.[CR][CR]Let Sonarr search for each '
                                   'episode by itself instead?' % (title, season)):
             sonarr_season(arr, item, eps, title, season)
-        return
+            return True
+        return False
     if not rels:
         xbmcgui.Dialog().ok(NAME, 'No releases found for %s%s.' % (title, ' season %d' % season if season else ''))
-        return
+        return False
     if episode and not any(episode in (r.get('episodeNumbers') or []) or r.get('fullSeason') for r in rels):
         air = next((e.get('airDate') for e in eps if e.get('episodeNumber') == episode), None)
         notify('Nothing for E%02d yet%s - showing the rest of the season'
@@ -518,10 +564,10 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, 
     while True:
         i = xbmcgui.Dialog().select(heading, auto + [release_label(r, n in stars, what(r)) for n, r in enumerate(ranked)])
         if i < 0:
-            return
+            return False
         if i < len(auto):
             sonarr_season(arr, item, eps, title, season)
-            return
+            return True
         r = ranked[i - len(auto)]
         if xbmcgui.Dialog().yesno(NAME, release_summary(arr, r), nolabel='Back', yeslabel='Download'):
             break
@@ -535,10 +581,10 @@ def choose_release(s, media_type, tmdb_id, title, d, season=None, episode=None, 
             override = {'seriesId': item['id'], 'episodeIds': ids or [e['id'] for e in eps]}
     busy(arr.grab, r, override)
     notify('Sent to %s: %s' % (client(s).name if has_client() else arr.kind.capitalize(), r['title'][:60]))
-    if not has_client():
-        return
-    after_grab(arr, r, {'title': title, 'type': media_type, 'tmdb_id': tmdb_id, 'runtime': runtime,
-                        'season': season, 'episode': (r.get('episodeNumbers') or [None])[0]})
+    if has_client():
+        after_grab(arr, r, {'title': title, 'type': media_type, 'tmdb_id': tmdb_id, 'runtime': runtime,
+                            'season': season, 'episode': (r.get('episodeNumbers') or [None])[0]})
+    return True
 
 
 def sonarr_season(arr, item, eps, title, season):
@@ -827,8 +873,11 @@ def watch_download(h, q):
             if i < 0:
                 return
             if opts[i][1] == 'play':
-                return play(qb, t, f, q)
+                play(qb, t, f, q)
+                return True
             if opts[i][1] == 'wait':
-                return wait_then_play(qb, h, q, f)
+                wait_then_play(qb, h, q, f)
+                return True
     except api.SeerrError as e:
         xbmcgui.Dialog().ok(NAME, str(e))
+    return False
