@@ -8,7 +8,7 @@ import xbmcplugin
 from resources.lib import api, hub
 
 BASE, HANDLE = sys.argv[0], int(sys.argv[1])
-ARGS = dict(urllib.parse.parse_qsl(sys.argv[2][1:]))
+ARGS = dict(urllib.parse.parse_qsl(sys.argv[2][1:], keep_blank_values=True))
 
 
 def url(**kw):
@@ -28,7 +28,7 @@ def add_titles(items):
             continue
         title = it.get('title') or it.get('name') or ''
         date = it.get('releaseDate') or it.get('firstAirDate') or ''
-        status = (it.get('mediaInfo') or {}).get('status')
+        status = api.status(it.get('mediaInfo'))
         badge = hub.status_label(status)
         label = title + (' (%s)' % date[:4] if date else '') + ('  [%s]' % badge if badge else '')
         li = xbmcgui.ListItem(label)
@@ -154,12 +154,19 @@ def main():
     s = hub.seerr()
     try:
         if action == 'search':
-            q = ARGS.get('query') or xbmcgui.Dialog().input('Search movies and shows')
-            if not q:
-                return xbmcplugin.endOfDirectory(HANDLE, succeeded=False)
-            found = s.search(q).get('results', [])
+            # a skin search row calls this with the box's text, empty until something is typed: no keyboard then
+            q = ARGS['query'] if 'query' in ARGS else xbmcgui.Dialog().input('Search movies and shows')
+            if not q.strip():
+                return xbmcplugin.endOfDirectory(HANDLE, succeeded='query' in ARGS)
+            page = int(ARGS.get('page') or 1)
+            res = s.search(q.strip(), page)
+            found = res.get('results', [])
             add_titles(found)
-            if not any(it.get('mediaType') in ('movie', 'tv') for it in found):
+            if page < (res.get('totalPages') or 1):
+                li = xbmcgui.ListItem('Next page (%d of %d)' % (page + 1, res['totalPages']))
+                li.setArt({'icon': 'DefaultFolder.png'})
+                xbmcplugin.addDirectoryItem(HANDLE, url(action='search', query=q, page=page + 1), li, isFolder=True)
+            elif page == 1 and not any(it.get('mediaType') in ('movie', 'tv') for it in found):
                 li = xbmcgui.ListItem('Nothing found for "%s"' % q)
                 li.setArt({'icon': 'DefaultIconInfo.png'})
                 xbmcplugin.addDirectoryItem(HANDLE, '', li, isFolder=False)

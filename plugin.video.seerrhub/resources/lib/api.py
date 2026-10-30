@@ -10,9 +10,16 @@ import urllib.request
 
 TMDB_IMG = 'https://image.tmdb.org/t/p/'
 
-# Seerr media status codes
-UNKNOWN, PENDING, PROCESSING, PARTIAL, AVAILABLE = 1, 2, 3, 4, 5
-STATUS_LABEL = {PENDING: 'Requested', PROCESSING: 'Downloading', PARTIAL: 'Partly available', AVAILABLE: 'Available'}
+# Seerr media status codes (Processing = approved and sent to Radarr/Sonarr, not necessarily downloading yet)
+UNKNOWN, PENDING, PROCESSING, PARTIAL, AVAILABLE, BLOCKLISTED, DELETED = 1, 2, 3, 4, 5, 6, 7
+STATUS_LABEL = {PENDING: 'Waiting for approval', PROCESSING: 'Requested', PARTIAL: 'Partly available',
+                AVAILABLE: 'Available', BLOCKLISTED: 'Blocklisted'}
+
+
+def status(info):
+    """Status of a title or season (its mediaInfo / season entry); deleted from the server counts as never had."""
+    st = (info or {}).get('status') or UNKNOWN
+    return UNKNOWN if st == DELETED else st
 
 
 def status_label(status, server=None):
@@ -706,11 +713,17 @@ def arr_queue(seerr):
         for s in servers:
             url = '%s://%s:%s%s' % ('https' if s.get('useSsl') else 'http', s['hostname'], s['port'], s.get('baseUrl') or '')
             for q in Arr(kind, url, s['apiKey'], s).queue():
-                out.setdefault(q['hash'], q)  # season packs: one hash, many episodes; keep the first
+                if q['hash'] in out:  # a season pack: one hash, many episodes, so no single episode number
+                    out[q['hash']] = dict(out[q['hash']], episode=None)
+                else:
+                    out[q['hash']] = q
     return out
 
 
 VIDEO_EXT = ('.mkv', '.mp4', '.m4v', '.avi', '.ts', '.mov', '.wmv')
+FAKE_EXT = ('.exe', '.scr', '.lnk', '.bat', '.cmd', '.msi', '.zipx')
+# release names that come with a program instead of a video (they pass Radarr/Sonarr's checks by name alone)
+FAKE_NAME = re.compile(r'self[ ._-]?extract|\.(exe|scr|lnk)\b|codec[ ._-]?pack', re.I)
 SAFETY = 1.2      # download must outpace playback by 20%
 MIN_BUFFER = 90   # seconds of video on disk before starting
 
@@ -816,6 +829,9 @@ def score_releases(releases, ref, minutes, rate_limit=0):
         }
         r['score'] = sum(WEIGHTS[k] * v for k, v in parts.items()) * (0.2 if not r.get('seeders') else 1)
         r['ok'] = bool(r.get('approved'))
+        if FAKE_NAME.search(r.get('title') or ''):
+            r['ok'], r['score'] = False, 0
+            r['rejections'] = ['looks like a fake (a program, not a video)'] + list(r.get('rejections') or [])
         notes = ['%.0f MB/min' % mb_min]
         if limits:
             lo, pref, hi = limits

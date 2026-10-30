@@ -148,6 +148,10 @@ def find_in_library(media_type, tmdb_id, title):
     for item in res.get(key, []):  # some scrapers only give imdb/tvdb ids: fall back to an exact title match
         if item['title'].lower() == title.lower():
             return item[idkey]
+    # the library can spell it differently (Se7en is "Seven" in Plex): look through everything for the TMDb id
+    for item in rpc(method, {'properties': ['uniqueid']}).get(key, []):
+        if str(item.get('uniqueid', {}).get('tmdb')) == str(tmdb_id):
+            return item[idkey]
     return None
 
 
@@ -192,8 +196,10 @@ def request(s, media_type, tmdb_id, title, details):
             return
         s.request('movie', tmdb_id)
     else:
-        have = {x['seasonNumber']: x['status'] for x in (details.get('mediaInfo') or {}).get('seasons', [])}
+        have = {x['seasonNumber']: api.status(x) for x in (details.get('mediaInfo') or {}).get('seasons', [])}
         for r in (details.get('mediaInfo') or {}).get('requests', []):
+            if r.get('status') in (3, 4):  # declined or failed: those seasons can be asked for again
+                continue
             for x in r.get('seasons', []):
                 have.setdefault(x['seasonNumber'], api.PENDING)
         seasons = [x for x in details.get('seasons', []) if x['seasonNumber'] > 0]
@@ -227,7 +233,7 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
     finally:
         xbmc.executebuiltin('Dialog.Close(busydialognocancel)')
     title = d.get('title') or d.get('name') or title or ''
-    status = (d.get('mediaInfo') or {}).get('status') or api.UNKNOWN
+    status = api.status(d.get('mediaInfo'))
 
     actions = []
     apps = installed_apps()
@@ -246,19 +252,20 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         else:
             actions.append(('In %s - not in Kodi\'s library yet' % where, ('none', None)))
 
-    if status in (api.PROCESSING, api.PARTIAL):
-        try:
-            cl = client(s)
-            rows = active_downloads(s, cl, media_type, tmdb_id)
-            if episode:  # this episode's download first
-                rows.sort(key=lambda row: (row[1].get('season'), row[1].get('episode')) != (season, episode))
-            for h, q, t in rows[:4]:
-                actions.append((download_label(cl, q, t), ('download', (h, q))))
-        except api.SeerrError as e:
-            log('downloads: %s' % e)
-
+    downloading, offers = False, []
     xbmc.executebuiltin('ActivateWindow(busydialognocancel)')
     try:
+        if status != api.AVAILABLE or media_type == 'tv':  # also when grabbed here: Seerr only hears of it later
+            try:
+                cl = client(s)
+                rows = active_downloads(s, cl, media_type, tmdb_id)
+                if episode:  # this episode's download first
+                    rows.sort(key=lambda row: (row[1].get('season'), row[1].get('episode')) != (season, episode))
+                for h, q, t in rows[:4]:
+                    actions.append((download_label(cl, q, t), ('download', (h, q))))
+                downloading = bool(rows)
+            except api.SeerrError as e:
+                log('downloads: %s' % e)
         offers = api.where_to_watch(title, tmdb_id, media_type, region(s))
     finally:
         xbmc.executebuiltin('Dialog.Close(busydialognocancel)')
@@ -272,12 +279,14 @@ def open_title(media_type, tmdb_id, title=None, season=None, episode=None):
         actions.append(('Watch the trailer', ('trailer', vids)))
 
     if status in (api.PENDING, api.PROCESSING):
-        actions.append(('%s in Seerr (already requested)' % api.STATUS_LABEL[status], ('none', None)))
+        actions.append(('Already requested in Seerr' + (' - waiting for approval' if status == api.PENDING else ''),
+                        ('none', None)))
     if status != api.AVAILABLE or media_type == 'tv':
         actions.append(('Download%s - choose the release...' % ep_tag, ('pick', None)))
     if media_type == 'tv':
         actions.append(('Download all of season %d...' % season if season else 'Download a whole season...', ('season', None)))
-    if (media_type == 'tv' and status != api.AVAILABLE) or (media_type == 'movie' and status == api.UNKNOWN):
+    if (media_type == 'tv' and status != api.AVAILABLE) or (media_type == 'movie' and status == api.UNKNOWN
+                                                             and not downloading):
         actions.append(('Request in Seerr (it picks the release)' if status == api.UNKNOWN else 'Request more seasons in Seerr',
                         ('request', None)))
 
@@ -355,7 +364,7 @@ def pick_season(title, d):
     seasons = [x for x in d.get('seasons', []) if x['seasonNumber'] > 0]
     if not seasons:
         raise api.SeerrError('No seasons listed for %s' % title)
-    have = {x['seasonNumber']: x['status'] for x in (d.get('mediaInfo') or {}).get('seasons', [])}
+    have = {x['seasonNumber']: api.status(x) for x in (d.get('mediaInfo') or {}).get('seasons', [])}
     labels = ['Season %d  (%d episodes)%s' % (x['seasonNumber'], x.get('episodeCount') or 0,
                                               ' - %s' % status_label(have[x['seasonNumber']])
                                               if have.get(x['seasonNumber']) in api.STATUS_LABEL else '') for x in seasons]
@@ -656,11 +665,16 @@ def runtime_s(q):
 def check(qb, h, q, f=None, speed=None):
     """(torrent, file, estimate) right now."""
     t = qb.torrent(h)
+    files = qb.files(h)
     if f is None:
-        f = pick_file(qb.files(h), q, ask=False)
+        f = pick_file(files, q, ask=False)
     else:
-        f = next((x for x in qb.files(h) if x['index'] == f['index']), f)
+        f = next((x for x in files if x['index'] == f['index']), f)
     if f is None:
+        if not files:  # a magnet link that hasn't found its peers yet
+            raise api.SeerrError('Getting the file list')
+        if any(x['name'].lower().endswith(api.FAKE_EXT) for x in files):
+            raise api.SeerrError('Not a video (a program inside: probably a fake release)')
         raise api.SeerrError('No video file in this download')
     sp = speed if speed is not None else t['dlspeed']
     return t, f, api.estimate(f, qb.pieces(h), qb.piece_size(h), sp, runtime_s(q))
@@ -690,8 +704,8 @@ def download_label(cl, q, t):
     try:
         t, f, e = check(cl, t['hash'], q)
         return 'Downloading%s: %d%% - %s' % (episode_tag(q), t['progress'] * 100, verdict(e, t))
-    except api.SeerrError:
-        return 'Downloading%s' % episode_tag(q)
+    except api.SeerrError as e:
+        return 'Downloading%s: %s' % (episode_tag(q), e)
 
 
 def play_path(qb, t, f):
@@ -738,7 +752,8 @@ def wait_then_play(qb, h, q, f):
                       '%s%s[CR]%s on disk, downloading at %s (needs %s)[CR]%s' % (
                           q.get('title', ''), episode_tag(q), api.mins(e['buffer_s']), api.mbps(speed),
                           api.mbps(e['bitrate'] * api.SAFETY), verdict(e, t) + ' - starts by itself'))
-            xbmc.Monitor().waitForAbort(5)
+            if xbmc.Monitor().waitForAbort(5):  # Kodi is closing
+                return
     finally:
         pd.close()
 
