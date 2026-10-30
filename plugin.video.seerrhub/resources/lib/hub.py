@@ -201,18 +201,26 @@ def request(s, media_type, tmdb_id, title, details):
             if r.get('status') in (3, 4):  # declined or failed: those seasons can be asked for again
                 continue
             for x in r.get('seasons', []):
-                have.setdefault(x['seasonNumber'], api.PENDING)
+                have.setdefault(x['seasonNumber'], api.PENDING if r.get('status') == 1 else api.PROCESSING)  # 1: not approved yet
         seasons = [x for x in details.get('seasons', []) if x['seasonNumber'] > 0]
-        missing = [x for x in seasons if have.get(x['seasonNumber'], api.UNKNOWN) == api.UNKNOWN]
-        if not missing:
+        free = lambda x: have.get(x['seasonNumber'], api.UNKNOWN) == api.UNKNOWN
+        if not any(free(x) for x in seasons):
             notify('Every season is already available or requested')
             return
-        labels = ['Season %d  (%d episodes)' % (x['seasonNumber'], x.get('episodeCount') or 0) for x in missing]
+        # every season is listed (leaving out the ones we have made the show look shorter than it is);
+        # the ones we have are labelled, and only ticked by default when we have none of the show yet
+        labels = ['Season %d  (%d episodes)%s' % (x['seasonNumber'], x.get('episodeCount') or 0,
+                                                 '' if free(x) else ' - %s' % status_label(have[x['seasonNumber']], s))
+                  for x in seasons]
+        fresh = all(free(x) for x in seasons)
         picked = xbmcgui.Dialog().multiselect('Request which seasons of %s?' % title, labels,
-                                              preselect=list(range(len(missing))))
-        if not picked:
+                                              preselect=list(range(len(seasons))) if fresh else [])
+        wanted = [seasons[i]['seasonNumber'] for i in picked or [] if free(seasons[i])]
+        if not wanted:
+            if picked:
+                notify('Those seasons are already available or requested')
             return
-        s.request('tv', tmdb_id, [missing[i]['seasonNumber'] for i in picked])
+        s.request('tv', tmdb_id, wanted)
     notify('Requested %s' % title)
 
 
