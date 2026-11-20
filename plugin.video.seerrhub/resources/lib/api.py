@@ -71,6 +71,9 @@ class Seerr(object):
     def season(self, tmdb_id, season):
         return self._call('/tv/%s/season/%s' % (tmdb_id, season))
 
+    def recommendations(self, media_type, tmdb_id, page=1):
+        return self._call('/%s/%s/recommendations' % (media_type, tmdb_id), {'page': page})
+
     def requests(self, take=20, skip=0):
         return self._call('/request', {'take': take, 'skip': skip, 'filter': 'all', 'sort': 'added'})
 

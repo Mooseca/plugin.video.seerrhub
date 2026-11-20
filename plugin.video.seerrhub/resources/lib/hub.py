@@ -717,6 +717,65 @@ def title_info(s, q):
     return info
 
 
+RECS_CACHE = 'special://profile/addon_data/plugin.video.seerrhub/recommended.json'
+RECS_HOURS = 6
+RECS_SEEDS = 6  # last watched titles the recommendations come from
+
+
+def watch_history(media_type):
+    """TMDb ids of the library titles last watched (newest first) and of everything watched at all."""
+    if media_type == 'movie':
+        res = rpc('VideoLibrary.GetMovies', {'properties': ['uniqueid', 'lastplayed'],
+                                             'filter': {'field': 'playcount', 'operator': 'greaterthan', 'value': '0'},
+                                             'sort': {'method': 'lastplayed', 'order': 'descending'}}).get('movies', [])
+    else:  # a show counts as watched once any episode is
+        res = [t for t in rpc('VideoLibrary.GetTVShows', {
+            'properties': ['uniqueid', 'lastplayed', 'watchedepisodes'],
+            'sort': {'method': 'lastplayed', 'order': 'descending'}}).get('tvshows', []) if t.get('watchedepisodes')]
+    ids = [str(t['uniqueid']['tmdb']) for t in res if (t.get('uniqueid') or {}).get('tmdb')]
+    return ids[:RECS_SEEDS], set(ids)
+
+
+def recommended(s, media_type):
+    """Seerr's recommendations for the movies or shows last watched in Kodi's library, the ones recommended by
+    several of them (and by the more recent ones) first. Anything already watched is left out.
+    Kept on disk for RECS_HOURS, or until something else is watched."""
+    seeds, watched = watch_history(media_type)
+    path = xbmcvfs.translatePath(RECS_CACHE)
+    try:
+        with open(path) as fh:
+            cache = json.load(fh)
+    except (IOError, ValueError):
+        cache = {}
+    hit = cache.get(media_type) or {}
+    if hit.get('seeds') == seeds and time.time() - hit.get('at', 0) < RECS_HOURS * 3600:
+        return hit['items']
+    score, items = {}, {}
+    for n, tmdb_id in enumerate(seeds):
+        try:
+            found = s.recommendations(media_type, tmdb_id).get('results') or []
+        except api.SeerrError as e:
+            log('recommended: %s' % e)
+            continue
+        for pos, it in enumerate(found):
+            key = str(it.get('id'))
+            if it.get('mediaType') != media_type or key in watched or key in seeds:
+                continue
+            # a newer seed counts more, and so does a higher place in its list
+            score[key] = score.get(key, 0) + (RECS_SEEDS - n) * (1 - pos / 40.0)
+            items[key] = it
+    ranked = [items[k] for k in sorted(score, key=score.get, reverse=True)][:40]
+    if ranked:
+        cache[media_type] = {'seeds': seeds, 'at': time.time(), 'items': ranked}
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w') as fh:
+                json.dump(cache, fh)
+        except (IOError, OSError):
+            pass
+    return ranked
+
+
 def episode_tag(q):
     if q.get('season') is not None and q.get('episode') is not None:
         return ' S%02dE%02d' % (q['season'], q['episode'])

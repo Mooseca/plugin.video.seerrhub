@@ -1,4 +1,4 @@
-# Seerr Hub plugin: search / trending / requests listings, and the entry point for TMDb Helper's player.
+# Seerr Hub plugin: search / trending / recommended / requests listings, and the entry point for TMDb Helper's player.
 import sys
 import urllib.parse
 
@@ -116,6 +116,8 @@ def main():
         li.setProperty('IsPlayable', 'false')
         xbmcplugin.addDirectoryItem(HANDLE, url(action='ask'), li, isFolder=False)
         folder('Trending', 'DefaultRecentlyAddedMovies.png', action='trending')
+        folder('Recommended movies', 'DefaultMovies.png', action='recommended', type='movie')
+        folder('Recommended shows', 'DefaultTVShows.png', action='recommended', type='tv')
         folder('My requests', 'DefaultAddonPVRClient.png', action='requests')
         folder('Downloading', 'DefaultAddonsUpdates.png', action='downloads')
         return listing('files')
@@ -176,6 +178,16 @@ def main():
                 li = xbmcgui.ListItem('More (page %d)' % (page + 1))
                 li.setArt({'icon': 'DefaultFolder.png'})
                 xbmcplugin.addDirectoryItem(HANDLE, url(action='trending', page=page + 1), li, isFolder=True)
+        elif action == 'recommended':  # ?action=recommended&type=movie|tv, from what you watched last
+            mtype = ARGS.get('type') if ARGS.get('type') in ('movie', 'tv') else 'movie'
+            items = hub.recommended(s, mtype)
+            add_titles(items)
+            if not items:
+                li = xbmcgui.ListItem('Watch something first')
+                li.setArt({'icon': 'DefaultIconInfo.png'})
+                li.getVideoInfoTag().setPlot('Recommendations come from the %s you watched last in your library.'
+                                             % ('movies' if mtype == 'movie' else 'shows'))
+                xbmcplugin.addDirectoryItem(HANDLE, '', li, isFolder=False)
         elif action == 'requests':
             page = int(ARGS.get('page') or 1)
             res = s.requests(20, (page - 1) * 20)

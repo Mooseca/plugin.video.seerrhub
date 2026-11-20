@@ -57,7 +57,7 @@ It works as its own add-on, as a **"Watch or request"** item in Kodi's context m
 | ![Already in your library](docs/screenshots/title-library.jpg) | ![Not in your library: download or request](docs/screenshots/title-request.jpg) |
 | **In your library:** one click plays it from Plex. | **Not in your library:** it tells you where it streams, and offers download or request. |
 | ![Search results](docs/screenshots/search.jpg) | ![Main menu](docs/screenshots/menu.jpg) |
-| **Search** shows what you already have (`[In Plex]`, `[Requested]`, `[Downloading]`). | **Main menu:** Search, Trending, My requests, Downloading. |
+| **Search** shows what you already have (`[In Plex]`, `[Requested]`, `[Downloading]`). | **Main menu:** Search, Trending, Recommended movies and shows, My requests, Downloading. |
 
 *Screenshots are from Kodi 21 with the Arctic Fuse 3 skin on a PC. See [Example setup: Arctic Fuse 3](#example-setup-arctic-fuse-3) for how it's configured. On Android TV the same menu also lists "Open in Netflix" and so on.*
 
@@ -255,8 +255,12 @@ Any Seerr Hub folder works as a widget:
 | Widget | Path |
 |---|---|
 | Trending | `plugin://plugin.video.seerrhub/?action=trending` |
+| Recommended movies | `plugin://plugin.video.seerrhub/?action=recommended&type=movie` |
+| Recommended shows | `plugin://plugin.video.seerrhub/?action=recommended&type=tv` |
 | My requests | `plugin://plugin.video.seerrhub/?action=requests` |
 | Downloading | `plugin://plugin.video.seerrhub/?action=downloads&reload=$INFO[Window(Home).Property(seerrhub.downloads)]` |
+
+**Recommended** comes from your own viewing: Seerr Hub takes the six movies (or shows) you watched last in Kodi's library, asks Seerr for each one's recommendations, and puts the titles recommended most often (and by the most recent ones) first. Anything you've already watched is left out. The list is kept for six hours, or until you watch something else.
 
 The `reload=` part on the Downloading widget keeps it up to date: while something is downloading, the add-on changes that property every 30 seconds, which makes the skin reload the widget.
 
@@ -314,7 +318,7 @@ Because Play goes through Seerr Hub, picking anything in those rows offers **Ope
 
 **4. App shortcuts (Android TV).** The home sub-menu also has plain launch items for the streaming apps (`StartAndroidActivity(com.netflix.ninja)` and so on), and one for the Plex app.
 
-**5. Tidier search (optional, Arctic Fuse 3.5+).** Turn on **Settings → Skin → Tidy Arctic Fuse 3 search**. The skin's search page then loses the A-Z letter row under the search box (OK on the box opens Kodi's full keyboard), and **Back** on the search box closes search, which is easier from a TV remote. This edits one of the skin's files (`Includes_Search.xml`). A skin update replaces that file, so Seerr Hub checks it when Kodi starts and every 10 minutes, and puts the change back. If the update deleted the skin's generated menus, it also asks SkinVariables to rebuild them. The skin reloads only while you're on the home screen with nothing playing. If a skin update changes that file in a way Seerr Hub doesn't recognise, it leaves the file alone and notes it in the Kodi log. Turning the setting off puts the skin's own version back.
+**5. Tidier search (optional, Arctic Fuse 3.5+).** Turn on **Settings → Skin → Tidy Arctic Fuse 3 search**. The skin's search page then loses the A-Z letter row under the search box (OK on the box opens Kodi's full keyboard), **Back** on the search box closes search, which is easier from a TV remote, and until you type something it shows **Recommended movies** and **Recommended TV shows** rows (see [Skin widgets](#skin-widgets)). This edits one of the skin's files (`Includes_Search.xml`). A skin update replaces that file, so Seerr Hub checks it when Kodi starts and every 10 minutes, and puts the change back. If the update deleted the skin's generated menus, it also asks SkinVariables to rebuild them. The skin reloads only while you're on the home screen with nothing playing. If a skin update changes that file in a way Seerr Hub doesn't recognise, it leaves the file alone and notes it in the Kodi log. Turning the setting off puts the skin's own version back.
 
 ## Streaming apps
 
@@ -402,9 +406,10 @@ The add-on is plain Python with no extra dependencies:
 
 | File | What's in it |
 |---|---|
-| `default.py` | Menus and lists (Search, Trending, My requests, Downloading) |
+| `default.py` | Menus and lists (Search, Trending, Recommended, My requests, Downloading) |
 | `context.py` | The "Watch or request" context-menu item |
-| `service.py` | Background service: watched-status sync and the Downloading widget refresh |
+| `service.py` | Background service: watched-status sync, the Downloading widget refresh and the optional skin tweaks |
+| `resources/lib/skinpatch.py` | The optional Arctic Fuse 3 search tweaks, re-applied after skin updates |
 | `resources/lib/hub.py` | The title menu, release picker and watch-while-downloading |
 | `resources/lib/api.py` | Seerr, JustWatch, Radarr/Sonarr, qBittorrent / Transmission / Deluge clients, and release ranking |
 | `resources/lib/mediasync.py` | Watched / resume-point sync to Plex, Jellyfin and Emby |
