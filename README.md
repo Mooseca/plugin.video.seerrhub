@@ -314,6 +314,8 @@ Because Play goes through Seerr Hub, picking anything in those rows offers **Ope
 
 **4. App shortcuts (Android TV).** The home sub-menu also has plain launch items for the streaming apps (`StartAndroidActivity(com.netflix.ninja)` and so on), and one for the Plex app.
 
+**5. Tidier search (optional, Arctic Fuse 3.5+).** Turn on **Settings → Skin → Tidy Arctic Fuse 3 search**. The skin's search page then loses the A-Z letter row under the search box (OK on the box opens Kodi's full keyboard), and **Back** on the search box closes search, which is easier from a TV remote. This edits one of the skin's files (`Includes_Search.xml`). A skin update replaces that file, so Seerr Hub checks it when Kodi starts and every 10 minutes, and puts the change back. If the update deleted the skin's generated menus, it also asks SkinVariables to rebuild them. The skin reloads only while you're on the home screen with nothing playing. If a skin update changes that file in a way Seerr Hub doesn't recognise, it leaves the file alone and notes it in the Kodi log. Turning the setting off puts the skin's own version back.
+
 ## Streaming apps
 
 Seerr Hub uses [JustWatch](https://www.justwatch.com) data to see which services have a title **in your region**. On Android it opens the official app straight to that title, if the app is installed.

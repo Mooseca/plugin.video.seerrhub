@@ -23,4 +23,8 @@
     <setting id="qbit_user" type="text" label="" default="" visible="false"/>
     <setting id="qbit_pass" type="text" label="" default="" visible="false"/>
   </category>
+  <category label="Skin">
+    <setting type="lsep" label="Arctic Fuse 3 search: no A-Z row (OK opens the full keyboard), Back closes it"/>
+    <setting id="af3_patch" type="bool" label="Tidy Arctic Fuse 3 search (redone after skin updates)" default="false"/>
+  </category>
 </settings>

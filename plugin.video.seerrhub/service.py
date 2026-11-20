@@ -1,11 +1,12 @@
 # Background part of Seerr Hub: notes how far you got in anything played off the downloads folder,
 # and hands that to the media server once the title has been imported there (see resources/lib/mediasync.py).
+# Optionally keeps the Arctic Fuse 3 search tweaks in place across skin updates (resources/lib/skinpatch.py).
 import json
 
 import xbmc
 import xbmcgui
 
-from resources.lib import hub, mediasync
+from resources.lib import hub, mediasync, skinpatch
 
 SYNC_EVERY = 600  # seconds
 DOWNLOADS_EVERY = 30  # seconds between refreshes of the Downloading widget / folder while something downloads
@@ -88,17 +89,34 @@ class DownloadsRefresher(object):
         self.busy = busy
 
 
+class Monitor(xbmc.Monitor):
+    def __init__(self):
+        super().__init__()
+        self.settings_changed = False
+
+    def onSettingsChanged(self):
+        self.settings_changed = True
+
+
 def main():
-    monitor, player = xbmc.Monitor(), Tracker()
+    monitor, player = Monitor(), Tracker()
     mediasync.check()
-    waited, downloads = 0, DownloadsRefresher()
+    waited, downloads, skin = 0, DownloadsRefresher(), skinpatch.SkinKeeper()
+    skin_check = 10  # seconds until the next skin check: soon after Kodi starts, then every SYNC_EVERY
     while not monitor.waitForAbort(5):
         player.tick()
         waited += 5
+        skin_check -= 5
         if player.isPlayingVideo():
             continue
         if waited % DOWNLOADS_EVERY == 0:
             downloads.tick()
+        if skin_check <= 0 or monitor.settings_changed or skin.reload:
+            skin_check, monitor.settings_changed = SYNC_EVERY, False
+            try:
+                skin.tick()
+            except Exception as e:  # never let the service die
+                hub.log('skin: %s' % e)
         if player.sync_now or waited >= SYNC_EVERY:
             player.sync_now, waited = False, 0
             try:
